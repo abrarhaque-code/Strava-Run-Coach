@@ -1,0 +1,55 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Personal config (copy config.example.json -> config.json)
+config.json
+
+# Personal Strava data - never commit
+activities.csv
+activities.csv.bak
+*.csv.bak
+profile.csv
+goals.csv
+shoes.csv
+bikes.csv
+data/raw_strava/
+data/strava_cache/
+
+# Auto-managed plan state + generated plan/calendar output
+data/plan_state.json
+plan_output/
+
+# Strava export ZIPs (if dropped here)
+export_*.zip
+*.zip
+
+# Generated raw activity files
+*.gpx
+*.fit
+*.fit.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local Claude state (project memory + session + work content not for this repo)
+.claude/

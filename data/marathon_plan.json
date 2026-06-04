@@ -1,0 +1,318 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "description": "Example 24-week sub-3:45 marathon plan. Periodized with an extended base plus cutback weeks. This is a template: edit the race block, the week entries, and the dates to fit your own goal race, then point config.json -> races[].plan at this file."
+  },
+  "race": {
+    "id": "city_marathon",
+    "name": "City Marathon",
+    "date": "2026-11-01",
+    "distance_mi": 26.2,
+    "goal_time": "3:45:00",
+    "goal_pace_min_per_mi": 8.583,
+    "vdot_required": 40.0
+  },
+  "paces": {
+    "easy":          {"min": 10.0,  "max": 10.5},
+    "long_run":      {"min": 9.75,  "max": 10.25},
+    "marathon_pace": 8.583,
+    "tempo":         {"min": 8.17,  "max": 8.42},
+    "threshold":     {"min": 7.92,  "max": 8.17},
+    "vo2max":        {"min": 7.5,   "max": 7.58}
+  },
+  "phases": [
+    {"id": "recovery",  "name": "Recovery",       "color": "#DCE3F4", "start_week": 1,  "end_week": 2},
+    {"id": "base",      "name": "Base Building",  "color": "#A9BCE6", "start_week": 3,  "end_week": 7},
+    {"id": "build_a",   "name": "Build Block A",  "color": "#6E8BD0", "start_week": 8,  "end_week": 11},
+    {"id": "build_b",   "name": "Build Block B",  "color": "#2F56B3", "start_week": 12, "end_week": 15},
+    {"id": "build_c",   "name": "Build Block C",  "color": "#2F56B3", "start_week": 16, "end_week": 17},
+    {"id": "peak",      "name": "Peak",           "color": "#002FA7", "start_week": 18, "end_week": 21},
+    {"id": "taper",     "name": "Taper + Race",   "color": "#6E8BD0", "start_week": 22, "end_week": 24}
+  ],
+  "weeks": [
+    {
+      "week_num": 1,
+      "start_date": "2026-05-18",
+      "phase": "recovery",
+      "target_miles": 5,
+      "long_run_target": 0,
+      "target_tss": 30,
+      "key_workout": null,
+      "notes": "Walk only days 1-3. Easy jogs 4-7 if you feel like it. No structure."
+    },
+    {
+      "week_num": 2,
+      "start_date": "2026-05-25",
+      "phase": "recovery",
+      "target_miles": 14,
+      "long_run_target": 6,
+      "target_tss": 90,
+      "key_workout": null,
+      "notes": "3-4 easy runs. No quality. Long run 5-6mi at conversation pace."
+    },
+    {
+      "week_num": 3,
+      "start_date": "2026-06-01",
+      "phase": "base",
+      "target_miles": 22,
+      "long_run_target": 7,
+      "target_tss": 150,
+      "key_workout": "4 strides on Wed easy run",
+      "notes": "Rebuild rhythm. All easy 10:00-10:30. No quality yet."
+    },
+    {
+      "week_num": 4,
+      "start_date": "2026-06-08",
+      "phase": "base",
+      "target_miles": 26,
+      "long_run_target": 9,
+      "target_tss": 180,
+      "key_workout": null,
+      "notes": "Long run progresses. Add a 5th easy run."
+    },
+    {
+      "week_num": 5,
+      "start_date": "2026-06-15",
+      "phase": "base",
+      "target_miles": 30,
+      "long_run_target": 11,
+      "target_tss": 220,
+      "key_workout": "Easy fartlek: 10x 30sec on, 30sec off",
+      "notes": "First taste of variation in pace. Stay relaxed."
+    },
+    {
+      "week_num": 6,
+      "start_date": "2026-06-22",
+      "phase": "base",
+      "target_miles": 33,
+      "long_run_target": 13,
+      "target_tss": 260,
+      "key_workout": "4mi tempo @ 8:30 (test the legs)",
+      "notes": "End-of-base test. If 4mi at 8:30 feels like work, base needs more time."
+    },
+    {
+      "week_num": 7,
+      "start_date": "2026-06-29",
+      "phase": "base",
+      "target_miles": 30,
+      "long_run_target": 12,
+      "target_tss": 230,
+      "key_workout": null,
+      "notes": "Transition cutback before Build A. All easy. Recover for the work ahead."
+    },
+    {
+      "week_num": 8,
+      "start_date": "2026-07-06",
+      "phase": "build_a",
+      "target_miles": 35,
+      "long_run_target": 14,
+      "target_tss": 290,
+      "key_workout": "5mi: 1mi w/u + 3mi tempo @ 8:25 + 1mi c/d",
+      "notes": "First quality session. Long run last 3mi at 9:00."
+    },
+    {
+      "week_num": 9,
+      "start_date": "2026-07-13",
+      "phase": "build_a",
+      "target_miles": 38,
+      "long_run_target": 15,
+      "target_tss": 320,
+      "key_workout": "6mi w/ 4mi tempo @ 8:20",
+      "notes": "Long run last 4mi at 9:00. Volume climbing."
+    },
+    {
+      "week_num": 10,
+      "start_date": "2026-07-20",
+      "phase": "build_a",
+      "target_miles": 42,
+      "long_run_target": 16,
+      "target_tss": 360,
+      "key_workout": "7mi w/ 5mi at marathon pace 8:35; Thu 5x800m @ 7:55",
+      "notes": "First marathon-pace run + first VO2 session. Big week."
+    },
+    {
+      "week_num": 11,
+      "start_date": "2026-07-27",
+      "phase": "build_a",
+      "target_miles": 35,
+      "long_run_target": 12,
+      "target_tss": 280,
+      "key_workout": "5mi tempo @ 8:20",
+      "notes": "Cutback. Absorb. No long run with quality this week."
+    },
+    {
+      "week_num": 12,
+      "start_date": "2026-08-03",
+      "phase": "build_b",
+      "target_miles": 45,
+      "long_run_target": 18,
+      "target_tss": 400,
+      "key_workout": "8mi w/ 5mi MP",
+      "notes": "Long run last 6mi at MP. The marathon-specific work begins."
+    },
+    {
+      "week_num": 13,
+      "start_date": "2026-08-10",
+      "phase": "build_b",
+      "target_miles": 48,
+      "long_run_target": 16,
+      "target_tss": 420,
+      "key_workout": "7mi w/ 5mi tempo @ 8:15",
+      "notes": "Long run last 8mi at MP. Practice race fueling."
+    },
+    {
+      "week_num": 14,
+      "start_date": "2026-08-17",
+      "phase": "build_b",
+      "target_miles": 50,
+      "long_run_target": 20,
+      "target_tss": 460,
+      "key_workout": "4x1mi @ 7:55 w/ 90s recovery",
+      "notes": "First 20-miler. Easy except last 6mi at MP. Threshold mile reps mid-week."
+    },
+    {
+      "week_num": 15,
+      "start_date": "2026-08-24",
+      "phase": "build_b",
+      "target_miles": 42,
+      "long_run_target": 14,
+      "target_tss": 340,
+      "key_workout": "6mi w/ 4mi tempo @ 8:20",
+      "notes": "Cutback. 14mi all easy. Recover for Block C."
+    },
+    {
+      "week_num": 16,
+      "start_date": "2026-08-31",
+      "phase": "build_c",
+      "target_miles": 52,
+      "long_run_target": 18,
+      "target_tss": 470,
+      "key_workout": "6x800m @ 7:50",
+      "notes": "Long run w/ 10mi at MP (the longest sustained MP block yet)."
+    },
+    {
+      "week_num": 17,
+      "start_date": "2026-09-07",
+      "phase": "build_c",
+      "target_miles": 50,
+      "long_run_target": 16,
+      "target_tss": 440,
+      "key_workout": "5mi @ HM effort 8:00",
+      "notes": "Long run w/ 8mi at MP. Threshold work to sharpen aerobic ceiling."
+    },
+    {
+      "week_num": 18,
+      "start_date": "2026-09-14",
+      "phase": "peak",
+      "target_miles": 58,
+      "long_run_target": 20,
+      "target_tss": 540,
+      "key_workout": "8mi tempo @ 8:15",
+      "notes": "DRESS REHEARSAL: 20mi w/ 12mi at MP. THE most important workout of the cycle."
+    },
+    {
+      "week_num": 19,
+      "start_date": "2026-09-21",
+      "phase": "peak",
+      "target_miles": 55,
+      "long_run_target": 16,
+      "target_tss": 480,
+      "key_workout": "4x1mi @ 7:55 w/ 2:00 recovery",
+      "notes": "Step-back week. Long run all easy. Sharpening continues."
+    },
+    {
+      "week_num": 20,
+      "start_date": "2026-09-28",
+      "phase": "peak",
+      "target_miles": 60,
+      "long_run_target": 22,
+      "target_tss": 580,
+      "key_workout": "6mi w/ 4mi at MP",
+      "notes": "Peak long run: 22mi all easy 9:45-10:00. The longest single run of the cycle."
+    },
+    {
+      "week_num": 21,
+      "start_date": "2026-10-05",
+      "phase": "peak",
+      "target_miles": 50,
+      "long_run_target": 16,
+      "target_tss": 420,
+      "key_workout": "5mi tempo @ 8:20",
+      "notes": "Cutback. Last hard week. 16mi w/ 8mi at MP. Tune-up race option this weekend."
+    },
+    {
+      "week_num": 22,
+      "start_date": "2026-10-12",
+      "phase": "taper",
+      "target_miles": 38,
+      "long_run_target": 14,
+      "target_tss": 300,
+      "key_workout": "Last hard tempo Wednesday",
+      "notes": "Taper begins. 14mi w/ 6mi at MP. No new stimulus after this week."
+    },
+    {
+      "week_num": 23,
+      "start_date": "2026-10-19",
+      "phase": "taper",
+      "target_miles": 28,
+      "long_run_target": 10,
+      "target_tss": 200,
+      "key_workout": "Strides on easy days only",
+      "notes": "Sharpening, not building. 10mi easy long. No quality."
+    },
+    {
+      "week_num": 24,
+      "start_date": "2026-10-26",
+      "phase": "taper",
+      "target_miles": 15,
+      "long_run_target": 0,
+      "target_tss": 280,
+      "key_workout": "Race day Sun Nov 1",
+      "notes": "Race week. Mon 4mi easy. Wed 3mi w/ 4 strides. Thu 2mi shakeout. Fri-Sat full rest. RACE DAY."
+    }
+  ],
+  "decision_points": [
+    {
+      "id": "end_of_base",
+      "after_week": 7,
+      "evaluate_date": "2026-07-05",
+      "name": "End of Base Phase",
+      "description": "Are you ready to add quality?",
+      "criteria": [
+        {"metric": "ctl",                 "op": ">=", "value": 32, "label": "CTL >= 32"},
+        {"metric": "longest_run_30d_mi",  "op": ">=", "value": 13, "label": "Completed 13mi+ long run"},
+        {"metric": "weeks_at_4plus_of_4", "op": ">=", "value": 3,  "label": "3+ of last 4 weeks at 4+ runs"},
+        {"metric": "tempo_4mi_test_pace", "op": "<=", "value": 8.5, "label": "4mi tempo test held 8:30/mi", "optional": true}
+      ],
+      "downgrade_action": "Stay in base 2 more weeks; reduce build mileage targets 10%"
+    },
+    {
+      "id": "end_of_build_b",
+      "after_week": 15,
+      "evaluate_date": "2026-08-30",
+      "name": "End of Marathon-Specific Block",
+      "description": "Is 3:45 still realistic?",
+      "criteria": [
+        {"metric": "ctl",                          "op": ">=", "value": 45, "label": "CTL >= 45"},
+        {"metric": "longest_run_30d_mi",           "op": ">=", "value": 18, "label": "18mi+ long run completed"},
+        {"metric": "weekly_mi_4wk_avg",            "op": ">=", "value": 42, "label": "42+ mpw avg over last 4 weeks"},
+        {"metric": "no_recent_injury_sidelined",   "op": "==", "value": true, "label": "No injury sidelining > 3 days"}
+      ],
+      "downgrade_action": "Adjust race target to sub-4:00; cap MP work at 6mi; reduce peak mileage to 50"
+    },
+    {
+      "id": "end_of_peak",
+      "after_week": 20,
+      "evaluate_date": "2026-10-04",
+      "name": "End of Peak Phase",
+      "description": "Race day execution check",
+      "criteria": [
+        {"metric": "ctl",                       "op": ">=", "value": 50, "label": "CTL >= 50"},
+        {"metric": "longest_run_30d_mi",        "op": ">=", "value": 20, "label": "20mi+ long run completed"},
+        {"metric": "mp_segment_completed_mi",   "op": ">=", "value": 12, "label": "12+ mi at MP completed in any single run"},
+        {"metric": "recovery_quality",          "op": "==", "value": true, "label": "Recovered from 22mi within 5 days", "optional": true}
+      ],
+      "downgrade_action": "Race conservatively: target 8:50 first half, see how legs feel. C goal sub-4:00."
+    }
+  ]
+}

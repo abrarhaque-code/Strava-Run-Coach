@@ -1,0 +1,69 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "description": "Copy this file to config.json and edit it for your own athlete profile, races, and pace zones. config.json is gitignored so your personal numbers never get committed. If config.json is absent, the app falls back to this example so a fresh clone still runs."
+  },
+  "athlete": {
+    "name": "Your Name",
+    "units": "mi",
+    "max_hr": 189,
+    "threshold_hr": 165,
+    "easy_hr_cap": 148,
+    "recovery_hr_cap": 130,
+    "long_run_hr_cap": 145,
+    "threshold_pace_min_per_mi": 9.0333
+  },
+  "pace_zones": {
+    "easy": {"floor": 10.5, "ceiling": 10.0},
+    "long_run": {"pace": 10.25},
+    "tempo": {"floor": 9.17, "ceiling": 8.83, "hr_range": [150, 160]},
+    "threshold": {"floor": 8.5, "ceiling": 8.17, "hr_range": [160, 170]},
+    "race_pace": {"floor": 9.17, "ceiling": 9.0, "hr_cap": 162}
+  },
+  "races": [
+    {
+      "id": "city_marathon",
+      "name": "City Marathon",
+      "date": "2026-11-01",
+      "distance_mi": 26.2,
+      "goal_time": "3:45:00",
+      "goal_pace_min_per_mi": 8.583,
+      "vdot_required": 40.0,
+      "plan": "data/marathon_plan.json",
+      "start_time_local": "08:30"
+    },
+    {
+      "id": "spring_half",
+      "name": "Spring Half Marathon",
+      "date": "2027-05-16",
+      "distance_mi": 13.1,
+      "goal_time": "1:59:59",
+      "goal_pace_min_per_mi": 9.15,
+      "vdot_required": 36.5,
+      "plan": "generated_half",
+      "start_time_local": "08:00"
+    }
+  ],
+  "active_race": "auto",
+  "theme": {
+    "klein": "#002FA7",
+    "klein_bright": "#0047FF",
+    "paper": "#F7F6F1",
+    "paper_light": "#FFFEFB",
+    "paper_dark": "#F1F0EA",
+    "ink": "#0A0A0A",
+    "vermilion": "#E5341F",
+    "white": "#FFFFFF",
+    "tint": "#B9C6EE",
+    "heatmap": ["#DCE3F4", "#A9BCE6", "#6E8BD0", "#2F56B3", "#002FA7"],
+    "display_font": "Space Grotesk",
+    "mono_font": "Space Mono"
+  },
+  "calendar": {
+    "timezone": "America/New_York",
+    "weekday_run_time": "20:30",
+    "saturday_long_time": "09:00",
+    "lift_time": "20:30",
+    "reminder_minutes": 30
+  }
+}
