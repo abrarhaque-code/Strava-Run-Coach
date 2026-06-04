@@ -1,9 +1,8 @@
 # strava-run-coach
 
-A personal running coach in your terminal: sync Strava, get VDOT race
-predictions, CTL/ATL/TSB fitness tracking, adaptive half/marathon plans, a
-calendar export, and a single-file HTML dashboard. Zero dependencies, pure
-Python.
+A command-line running coach. It reads your Strava data and computes VDOT race
+predictions, CTL/ATL/TSB fitness tracking, adaptive half and marathon plans, a
+calendar export, and an HTML dashboard.
 
 [![CI](https://github.com/abrarhaque-code/strava-run-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/abrarhaque-code/strava-run-coach/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -14,11 +13,10 @@ Python.
 ## Why
 
 Most running analytics live behind a subscription or a cloud account, and your
-training history goes with them. This is the opposite: a small, readable Python
-program that runs on your own machine, reads your own Strava export or API feed,
-and turns it into the coaching numbers that actually drive training decisions.
-Nothing phones home. The whole thing is the standard library and a few hundred
-lines of arithmetic you can audit.
+training history lives there too. This runs on your own machine instead. It
+reads your Strava export or API feed and turns it into the coaching numbers that
+drive training decisions. It uses only the Python standard library, so the code
+is small and none of your data leaves your computer.
 
 ## Features
 
@@ -32,9 +30,9 @@ lines of arithmetic you can audit.
 - Adaptive multi-week half and marathon plans with phase structure and
   decision points that evaluate against your current fitness.
 - iCalendar (`.ics`) export so planned workouts land in your calendar.
-- A self-contained, editorial HTML dashboard that opens in any browser.
+- A single-file HTML dashboard that opens in a browser.
 
-## Run it in 60 seconds
+## Quick start
 
 ```bash
 git clone https://github.com/abrarhaque-code/strava-run-coach.git
@@ -43,10 +41,9 @@ python3 setup.py
 python3 coach.py
 ```
 
-`setup.py` walks you through a short config and then offers to generate a full
-sample training history, so `coach.py` shows real output on the first run. There
-is no `pip install` step: the project uses only the Python standard library and
-needs nothing but Python 3.10 or newer.
+`setup.py` walks through a short config and can generate a sample training
+history, so `coach.py` produces output on a fresh clone. There is nothing to
+`pip install`; it needs only Python 3.10 or newer.
 
 ## Connect your Strava (optional)
 
@@ -61,7 +58,7 @@ training, connect the Strava API:
 5. `python3 strava_sync.py` to pull your activities.
 
 Your data stays on your machine. `.env`, `activities.csv`, and the Strava cache
-are gitignored and never leave the repo.
+are listed in `.gitignore`, so they are not committed.
 
 ## Configuration
 
