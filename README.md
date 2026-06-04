@@ -4,7 +4,7 @@ A command-line running coach. It reads your Strava data and computes VDOT race
 predictions, CTL/ATL/TSB fitness tracking, adaptive half and marathon plans, a
 calendar export, and an HTML dashboard.
 
-[![CI](https://github.com/abrarhaque-code/strava-run-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/abrarhaque-code/strava-run-coach/actions/workflows/ci.yml)
+[![CI](https://github.com/abrarhaque-code/Strava-Run-Coach/actions/workflows/ci.yml/badge.svg)](https://github.com/abrarhaque-code/Strava-Run-Coach/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -35,8 +35,8 @@ is small and none of your data leaves your computer.
 ## Quick start
 
 ```bash
-git clone https://github.com/abrarhaque-code/strava-run-coach.git
-cd strava-run-coach
+git clone https://github.com/abrarhaque-code/Strava-Run-Coach.git
+cd Strava-Run-Coach
 python3 setup.py
 python3 coach.py
 ```
