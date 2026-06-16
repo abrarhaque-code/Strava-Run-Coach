@@ -21,6 +21,11 @@ data/strava_cache/
 data/plan_state.json
 plan_output/
 
+# Generated plans + MCP activity dumps (personal data / build artifacts)
+data/*.generated.json
+data/mcp_activities.json
+data/mcp_*.json
+
 # Strava export ZIPs (if dropped here)
 export_*.zip
 *.zip

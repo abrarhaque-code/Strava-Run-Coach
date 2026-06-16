@@ -65,5 +65,20 @@
     "saturday_long_time": "09:00",
     "lift_time": "20:30",
     "reminder_minutes": 30
+  },
+  "crosstrain": {
+    "bike_min_per_mi": 10.0,
+    "intensity_factor": 0.80,
+    "include_in_aerobic_load": true
+  },
+  "strength": {
+    "tss_per_session": 30,
+    "include_in_aerobic_load": true
+  },
+  "scenario": {
+    "block_weeks": 16,
+    "taper_weeks": 3,
+    "peak_multiplier": 1.7,
+    "entries": [20, 25, 30]
   }
 }

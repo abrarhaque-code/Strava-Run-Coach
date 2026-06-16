@@ -140,6 +140,88 @@ def compute_tss(run: dict) -> float:
     return min(tss, 200.0)
 
 
+def crosstrain_tss(a: dict) -> float:
+    """Duration-based TSS for an aerobic cross-training session (e.g. Zone-2 bike).
+
+    Cross-training counts toward the aerobic-load stream (fitness/fatigue) but
+    never toward running mileage. Intensity factor is configurable; Zone-2 work
+    defaults to 0.80.
+    """
+    mt_min = (a.get("moving_time", 0) or 0) / 60.0
+    if mt_min <= 0:
+        return 0.0
+    intensity = float(config.crosstrain_cfg().get("intensity_factor", 0.80))
+    return min((mt_min / 60.0) * (intensity ** 2) * 100, 150.0)
+
+
+def strength_tss(a: dict = None) -> float:
+    """Fixed TSS per strength session so lifting fatigue shows up in TSB."""
+    return float(config.strength_cfg().get("tss_per_session", 30))
+
+
+def load_sessions() -> list:
+    """All load-bearing sessions with precomputed TSS.
+
+    Runs (run-specific load) + cross-training + strength. This is the aerobic
+    LOAD stream behind CTL/ATL/TSB. Running mileage (a separate stream) comes
+    from load_runs() alone, so cross-training and lifting never inflate it.
+    """
+    sessions = [{"date": r["date"], "tss": compute_tss(r), "kind": "run"}
+                for r in load_runs()]
+    xt = config.crosstrain_cfg()
+    st = config.strength_cfg()
+    if CACHE_DIR.exists():
+        for p in CACHE_DIR.glob("*.json"):
+            try:
+                a = json.loads(p.read_text())
+            except json.JSONDecodeError:
+                continue
+            t = a.get("type")
+            try:
+                dt = datetime.fromisoformat(
+                    a["start_date_local"].replace("Z", "+00:00")).replace(tzinfo=None)
+            except (KeyError, ValueError, AttributeError):
+                continue
+            if t == "CrossTrain" and xt.get("include_in_aerobic_load", True):
+                sessions.append({"date": dt, "tss": crosstrain_tss(a), "kind": "crosstrain"})
+            elif t == "WeightTraining" and st.get("include_in_aerobic_load", True):
+                sessions.append({"date": dt, "tss": strength_tss(a), "kind": "strength"})
+    sessions.sort(key=lambda s: s["date"])
+    return sessions
+
+
+def compute_loads_all(days_back: int = 90) -> list:
+    """CTL/ATL/TSB over the aerobic-load stream (runs + cross-training + strength).
+
+    Same 42d/7d EWMA as compute_loads, but the daily series is built from
+    load_sessions() so cross-training and lifting contribute to fitness/fatigue.
+    """
+    today = date.today()
+    end = today
+    start = end - timedelta(days=days_back - 1)
+    warmup_start = start - timedelta(days=42)
+
+    daily = defaultdict(float)
+    for s in load_sessions():
+        d = s["date"].date()
+        if warmup_start <= d <= end:
+            daily[d] += s["tss"]
+
+    ctl = 0.0
+    atl = 0.0
+    series = []
+    cur = warmup_start
+    while cur <= end:
+        tss = daily.get(cur, 0.0)
+        tsb_today = ctl - atl
+        ctl = ctl + (tss - ctl) / 42.0
+        atl = atl + (tss - atl) / 7.0
+        if cur >= start:
+            series.append({"date": cur, "tss": tss, "ctl": ctl, "atl": atl, "tsb": tsb_today})
+        cur += timedelta(days=1)
+    return series
+
+
 def daily_tss_series(runs: list, start_date: date, end_date: date) -> dict:
     """Map date -> total TSS for that day."""
     daily = defaultdict(float)
@@ -248,7 +330,8 @@ def ascii_chart(series: list, metric: str = "ctl", height: int = 12, width: int 
 def current_status() -> dict:
     """Quick snapshot of current fitness state."""
     runs = load_runs()
-    series = compute_loads(runs, days_back=90)
+    # Aerobic-load stream: runs + cross-training + strength feed CTL/ATL/TSB.
+    series = compute_loads_all(days_back=90)
     if not series:
         return {"error": "No data"}
 
