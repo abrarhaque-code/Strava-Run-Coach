@@ -244,7 +244,8 @@ def _week_workouts(w: dict, start: date, paces: dict, race: dict, zones: PaceZon
               notes="Recovery day. Optional easy lift (upper body)."))
     wk.append(PlannedWorkout(day=start + timedelta(days=1), workout_type="easy",
               description=f"{easy_each:.1f}mi easy @ {easy}", distance_mi=easy_each,
-              target_pace=easy, hr_cap=zones.easy_hr_cap, notes="Truly easy. Lift after if scheduled."))
+              target_pace=easy, hr_cap=zones.easy_hr_cap,
+              notes="Truly easy. Z2 bike is a fine substitute (~10 min = 1 mi) if managing a niggle."))
     wk.append(PlannedWorkout(day=start + timedelta(days=2), workout_type="key",
               description=f"KEY: {w['key_workout']}", distance_mi=easy_each,
               hr_cap=zones.race_hr_cap, notes="The one quality session of the week."))

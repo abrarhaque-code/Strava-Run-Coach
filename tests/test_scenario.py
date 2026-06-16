@@ -1,6 +1,10 @@
 """Tests for the base-build scenario projector (ramp + marathon projection)."""
 
+import json
+import tempfile
 import unittest
+from datetime import date, timedelta
+from pathlib import Path
 
 import scenario
 from scenario import (
@@ -9,6 +13,7 @@ from scenario import (
     feasibility,
     aerobic_gain_bounds,
     exec_penalty_bounds,
+    trailing_crosstrain_equiv_mpw,
 )
 
 C = dict(scenario.DEFAULTS)
@@ -74,6 +79,25 @@ class TestProjection(unittest.TestCase):
         self.assertLessEqual(best_lo, worst_lo)
         self.assertLess(worst_hi, worst_lo)
         self.assertGreaterEqual(worst_hi, 1.0)
+
+
+class TestCrosstrainEquiv(unittest.TestCase):
+    def setUp(self):
+        self._orig = scenario.CACHE_DIR
+        self._tmp = tempfile.TemporaryDirectory()
+        scenario.CACHE_DIR = Path(self._tmp.name)
+        recent = (date.today() - timedelta(days=3)).isoformat() + "T20:00:00"
+        # 40 min Zone-2 bike = 4 run-equiv miles at 10 min/mi.
+        (scenario.CACHE_DIR / "x1.json").write_text(json.dumps(
+            {"id": "x1", "type": "CrossTrain", "moving_time": 2400, "start_date_local": recent}))
+
+    def tearDown(self):
+        scenario.CACHE_DIR = self._orig
+        self._tmp.cleanup()
+
+    def test_bike_converts_to_run_equiv_miles(self):
+        # 4 equiv miles over a 4-week window -> ~1 mpw-equiv.
+        self.assertAlmostEqual(trailing_crosstrain_equiv_mpw(weeks=4), 1.0, delta=0.05)
 
 
 class TestFeasibility(unittest.TestCase):

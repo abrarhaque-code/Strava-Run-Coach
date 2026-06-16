@@ -22,9 +22,11 @@ Reuses race_predictor's Jack Daniels VDOT math and config for the goal race.
 Stdlib only.
 """
 
+import json
 import math
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import config
 from race_predictor import (
@@ -36,11 +38,12 @@ from race_predictor import (
 )
 
 MARATHON_M = 42195.0
+CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
 
 DEFAULTS = {
     "block_weeks": 16,
     "taper_weeks": 3,
-    "peak_multiplier": 1.7,     # peak mpw ~ this x entry mpw over the block
+    "peak_multiplier": 1.9,     # peak mpw ~ this x entry mpw over the block
     "cutback_every": 4,         # every Nth build week is a cutback
     "cutback_pct": 0.82,        # cutback week as a fraction of the ramped target
     "max_weekly_jump": 0.12,    # safety cap on week-over-week growth
@@ -201,6 +204,36 @@ def trailing_run_mpw(activities: list, today=None, weeks: int = 4) -> float:
     return miles / weeks
 
 
+def trailing_crosstrain_equiv_mpw(today=None, weeks: int = 4) -> float:
+    """Run-equivalent miles per week from cross-training (e.g. Zone-2 bike).
+
+    Uses the athlete's own conversion (config.crosstrain.bike_min_per_mi,
+    default 10 min = 1 mi). This counts toward the AEROBIC base, not running
+    mileage: biking maintains the engine but not the legs' impact durability.
+    """
+    today = _as_date(today or date.today())
+    cutoff = today - timedelta(days=weeks * 7)
+    per_mi = float(config.crosstrain_cfg().get("bike_min_per_mi", 10.0))
+    if per_mi <= 0 or not CACHE_DIR.exists():
+        return 0.0
+    total = 0.0
+    for p in CACHE_DIR.glob("*.json"):
+        try:
+            a = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if a.get("type") != "CrossTrain":
+            continue
+        try:
+            d = datetime.fromisoformat(a["start_date_local"].replace("Z", "")).date()
+        except (KeyError, ValueError, AttributeError):
+            continue
+        if d < cutoff:
+            continue
+        total += ((a.get("moving_time", 0) or 0) / 60.0) / per_mi
+    return total / weeks
+
+
 # ---------------------------------------------------------------------------
 # Marathon projection (range, not a point)
 # ---------------------------------------------------------------------------
@@ -275,12 +308,20 @@ def _as_date(d):
 
 
 def derive_inputs(today=None):
-    """Anchor VDOT and current running volume from cached activities."""
+    """Anchor VDOT, current running volume, and aerobic-equivalent volume."""
     today = today or date.today()
     acts = load_activities()  # type == Run only (cross-training is excluded)
     anchor, src = endurance_anchor_vdot(acts, today)
-    cur_mpw = trailing_run_mpw(acts, today, weeks=4)
-    return anchor, cur_mpw, src, len(acts)
+    run_mpw = trailing_run_mpw(acts, today, weeks=4)
+    xt_mpw = trailing_crosstrain_equiv_mpw(today, weeks=4)
+    return {
+        "anchor": anchor,
+        "anchor_src": src,
+        "run_mpw": run_mpw,
+        "crosstrain_equiv_mpw": xt_mpw,
+        "aerobic_mpw": run_mpw + xt_mpw,
+        "activities_loaded": len(acts),
+    }
 
 
 def runway_to_block(c: dict, today=None) -> tuple:
@@ -296,22 +337,30 @@ def runway_to_block(c: dict, today=None) -> tuple:
 def compare_scenarios(entries=None, today=None) -> dict:
     c = cfg()
     today = today or date.today()
-    anchor, cur_mpw, src, n = derive_inputs(today)
+    inp = derive_inputs(today)
+    anchor = inp["anchor"]
+    run_mpw = inp["run_mpw"]
     entries = entries or c["entries"]
     race_date, block_start, runway = runway_to_block(c, today)
 
     rows = []
     for e in entries:
         ramp = build_ramp(e, c)
-        proj = project_marathon(anchor, ramp, cur_mpw, c)
-        feas = feasibility(cur_mpw, e, runway, c)
+        # Aerobic gain is anchored on running volume; cross-training's benefit is
+        # already carried in the endurance anchor VDOT. Feasibility uses running
+        # volume because the ramp governs impact durability, which biking does
+        # not build.
+        proj = project_marathon(anchor, ramp, run_mpw, c)
+        feas = feasibility(run_mpw, e, runway, c)
         rows.append({"entry": e, "ramp": ramp, "proj": proj, "feas": feas})
 
     return {
         "anchor_vdot": anchor,
-        "anchor_src": src,
-        "current_mpw": cur_mpw,
-        "activities_loaded": n,
+        "anchor_src": inp["anchor_src"],
+        "run_mpw": run_mpw,
+        "crosstrain_equiv_mpw": inp["crosstrain_equiv_mpw"],
+        "aerobic_mpw": inp["aerobic_mpw"],
+        "activities_loaded": inp["activities_loaded"],
         "race_date": race_date,
         "block_start": block_start,
         "runway_weeks": runway,
@@ -337,7 +386,11 @@ def print_scenarios(entries=None):
     if src.get("date"):
         dist = f"{src.get('distance_mi', 0):.1f}mi " if src.get("distance_mi") else ""
         print(f"    from {dist}on {src['date']}  [{src.get('name','')}]")
-    print(f"  Current running volume: {r['current_mpw']:.0f} mpw (trailing 4 wk, runs only)")
+    xt = r["crosstrain_equiv_mpw"]
+    print(f"  Current running volume: {r['run_mpw']:.0f} mpw (trailing 4 wk, runs only)")
+    if xt >= 0.1:
+        print(f"  + Zone-2 cross-training:  {xt:.0f} mpw-equiv  "
+              f"->  aerobic-equivalent base {r['aerobic_mpw']:.0f} mpw")
     print(f"  16-wk block starts ~{r['block_start']}  ->  runway to build base: "
           f"{r['runway_weeks']:.1f} weeks")
     print()
@@ -353,11 +406,15 @@ def print_scenarios(entries=None):
               f"{ramp['long_run_peak']:>5.0f}  {rng:>17}  {feas['label']:>12}")
     print()
     print("  How to read this:")
-    print("  - Peak mpw is the highest week the ramp reaches (~1 wk before taper).")
+    print(f"  - Peak mpw ~= entry x {cfg()['peak_multiplier']:.2f} (the build factor, "
+          "tunable in config).")
+    print("    Peak is tied to entry, so a low entry caps how high you can safely build.")
     print("  - Marathon range blends a bounded aerobic gain over the block with a")
     print("    late-race fade penalty that shrinks as your long-run volume rises.")
-    print("  - 'Reach base?' is the week-over-week rate needed from today: <=10%/wk")
-    print("    comfortable, <=15%/wk aggressive, above that unsafe on this runway.")
+    print("  - 'Reach base?' uses RUNNING volume only: biking builds the aerobic")
+    print("    engine but not impact durability, so it can't justify a steeper run ramp.")
+    print("    Z2 bike still counts as aerobic-equivalent base above and as an easy-run")
+    print("    substitute in the plan (10 min ~= 1 mi).")
     print()
     print("  Caveats (read these): ramp percentages are heuristics, not validated")
     print("  laws; the volume->time link is correlational and individual. Treat the")
