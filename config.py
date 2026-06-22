@@ -164,6 +164,18 @@ def calendar_cfg() -> dict:
     return load_config().get("calendar", {})
 
 
+def crosstrain_cfg() -> dict:
+    return load_config().get("crosstrain", {})
+
+
+def strength_cfg() -> dict:
+    return load_config().get("strength", {})
+
+
+def scenario_cfg() -> dict:
+    return load_config().get("scenario", {})
+
+
 # ---------------------------------------------------------------------------
 # Races + active-race resolution
 # ---------------------------------------------------------------------------

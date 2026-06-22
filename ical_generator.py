@@ -329,6 +329,46 @@ def write_week_ics(week: PlannedWeek, output_dir: str = "plan_output") -> str:
     return path
 
 
+def generate_plan_ics(plan: TrainingPlan) -> str:
+    """Generate ONE .ics for the whole plan (a subscribable feed for Outlook).
+
+    Every workout across every week becomes a VEVENT in a single VCALENDAR, so
+    the user adds one calendar and re-generation updates it (adaptive feed).
+    """
+    events = []
+    for week in plan.weeks:
+        for w in week.workouts:
+            block = _build_vevent(w)
+            if block:
+                events.append(block)
+
+    header = "\r\n".join([
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        f"PRODID:{PRODID}",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{plan.race_name} Training",
+    ])
+    tz_block = VTIMEZONE_BLOCK.replace("\n", "\r\n")
+    parts = [header, tz_block]
+    if events:
+        parts.append("\r\n".join(events))
+    parts.append("END:VCALENDAR")
+    return "\r\n".join(parts) + "\r\n"
+
+
+def write_plan_ics(plan: TrainingPlan, output_dir: str = "plan_output",
+                   filename: str = "training.ics") -> str:
+    """Write the combined plan feed to a single .ics file. Returns the path."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, filename)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(generate_plan_ics(plan))
+    print(f"  Wrote subscribable feed: {path}")
+    return path
+
+
 def generate_all_ics(plan: TrainingPlan, output_dir: str = "plan_output") -> list[str]:
     """Write .ics files for every week in a training plan.
 

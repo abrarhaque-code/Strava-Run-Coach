@@ -9,7 +9,14 @@ Usage:
     python3 coach.py week       # weekly check-in
     python3 coach.py dashboard  # regenerate the HTML dashboard
     python3 coach.py sync       # sync from Strava + full report
+    python3 coach.py scenario   # base-build scenarios (20/25/30 -> peak -> marathon)
+    python3 coach.py plan       # generate a parametric 16-week marathon plan
+    python3 coach.py analyze --from-mcp <file.json>  # ingest Strava MCP JSON, then report
     python3 coach.py init       # first-run setup wizard
+
+Examples:
+    python3 coach.py scenario --entry 20,25,30
+    python3 coach.py plan --entry 25 --weeks 16
 """
 
 import sys
@@ -81,6 +88,7 @@ def main():
         pass
 
     cmd = sys.argv[1] if len(sys.argv) > 1 else "full"
+    extra = sys.argv[2:]
 
     routes = {
         "full": full_report,
@@ -91,6 +99,8 @@ def main():
         "metrics": lambda: _run_module("metrics"),
         "week": lambda: _run_module("weekly_check"),
         "dashboard": lambda: _run_module("dashboard"),
+        "scenario": lambda: _run_module("scenario", extra),
+        "plan": lambda: _run_module("plan_generator", extra),
         "init": lambda: _run_module("setup"),
     }
 
@@ -100,6 +110,29 @@ def main():
         # Dashboard auto-regen happens at end of sync; also kick a fresh one
         # in case sync was a no-op (still want dashboard updated)
         _run_module("dashboard")
+        return
+
+    if cmd == "analyze":
+        # Ingest a Strava MCP list_activities JSON dump, then report. Lets any
+        # Claude session with the Strava MCP drive the coach with no OAuth/sync.
+        from mcp_adapter import ingest_mcp_file
+        path = None
+        for i, a in enumerate(extra):
+            if a == "--from-mcp" and i + 1 < len(extra):
+                path = extra[i + 1]
+            elif a.startswith("--from-mcp="):
+                path = a.split("=", 1)[1]
+        if not path:
+            print("Usage: python3 coach.py analyze --from-mcp <file.json>")
+            sys.exit(1)
+        summary = ingest_mcp_file(path)
+        print(f"Ingested {summary['written']} activities from {path}")
+        for t, c in sorted(summary["by_type"].items()):
+            print(f"  {t:14} {c}")
+        _section("RACE FORECAST")
+        _run_module("race_predictor")
+        _section("BASE-BUILD SCENARIOS")
+        _run_module("scenario")
         return
 
     if cmd not in routes:
