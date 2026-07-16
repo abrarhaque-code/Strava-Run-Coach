@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import List, Tuple
 
 import config
+from enrichment import classify_activity
 from models import RunActivity, StrengthSession, WeekSummary, PaceZones
 
 
@@ -54,6 +55,18 @@ def load_activities(csv_path: str = 'activities.csv') -> Tuple[List[RunActivity]
                     return float(row[idx]) if len(row) > idx and row[idx] else None
                 except (ValueError, IndexError):
                     return None
+
+            # Skip bike-as-run and zero-time entries: the weekly aggregates
+            # here feed mileage and pace stats, which fake runs would skew.
+            probe = {
+                "type": "Run",
+                "distance": dist_km * 1000,
+                "moving_time": mt,
+                "max_speed": safe_float(18),
+                "average_speed": safe_float(19),
+            }
+            if classify_activity(probe) not in ("run", "treadmill_run"):
+                continue
 
             runs.append(RunActivity(
                 date=dt,

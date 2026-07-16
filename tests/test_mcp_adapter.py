@@ -20,6 +20,22 @@ class TestClassify(unittest.TestCase):
     def test_ride_is_crosstrain(self):
         self.assertEqual(classify_type("Ride", "Evening Ride", "", 0), "CrossTrain")
 
+    def test_bike_signature_without_keywords_is_crosstrain(self):
+        # Live-sampled shape: manual entry (max_speed 0) at exactly the
+        # configured bike-equivalence speed, but a name with no bike keyword.
+        summary = {"distance": 4023.4, "moving_time": 1500, "elapsed_time": 1500,
+                   "avg_speed": 2.6822666666666666, "max_speed": 0}
+        self.assertEqual(
+            classify_type("Run", "Zone 2 - 124 bpm", "", 4023.4, summary),
+            "CrossTrain")
+
+    def test_real_run_summary_stays_run(self):
+        # Live-sampled real run: max_speed present, avg speed off-signature.
+        summary = {"distance": 8616.78, "moving_time": 2716,
+                   "avg_speed": 3.1726, "max_speed": 3.86}
+        self.assertEqual(
+            classify_type("Run", "Evening Run", "", 8616.78, summary), "Run")
+
     def test_weight_training_is_strength(self):
         self.assertEqual(classify_type("WeightTraining", "Full Body", "Gym", 0), "WeightTraining")
 

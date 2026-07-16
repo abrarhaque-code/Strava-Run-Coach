@@ -46,24 +46,36 @@ def _text(*vals) -> str:
     return " ".join(str(v or "") for v in vals).lower()
 
 
-def looks_like_crosstrain(sport_type: str, name: str, description: str) -> bool:
+def looks_like_crosstrain(sport_type: str, name: str, description: str,
+                          summary: dict = None) -> bool:
     """True if this should count as aerobic cross-training, not running mileage.
 
-    Catches both non-run sports and runs whose name/description say "bike",
-    "ride", etc. (e.g. an athlete logging Zone-2 bike sessions as "Run" while
-    working through a niggle.)
+    Catches non-run sports, runs whose name/description say "bike", "ride",
+    etc. (e.g. an athlete logging Zone-2 bike sessions as "Run" while working
+    through a niggle), and — when the summary numbers are provided — manual
+    entries carrying the bike-equivalence speed signature even with a clean
+    name (enrichment.looks_like_bike_equiv is the shared detector).
     """
     if sport_type and sport_type not in _RUN_SPORTS and sport_type not in _STRENGTH_SPORTS:
         return True
     blob = _text(name, description)
-    return any(w in blob for w in _CROSSTRAIN_WORDS)
+    if any(w in blob for w in _CROSSTRAIN_WORDS):
+        return True
+    if summary:
+        from enrichment import looks_like_bike_equiv
+        return looks_like_bike_equiv(
+            summary.get("avg_speed"), summary.get("max_speed"),
+            summary.get("distance"), summary.get("moving_time"))
+    return False
 
 
-def classify_type(sport_type: str, name: str, description: str, distance_m: float) -> str:
+def classify_type(sport_type: str, name: str, description: str, distance_m: float,
+                  summary: dict = None) -> str:
     """Map an MCP activity to a cache `type`: Run | CrossTrain | WeightTraining."""
     if sport_type in _STRENGTH_SPORTS:
         return "WeightTraining"
-    if sport_type in _RUN_SPORTS and not looks_like_crosstrain(sport_type, name, description):
+    if sport_type in _RUN_SPORTS and not looks_like_crosstrain(
+            sport_type, name, description, summary):
         return "Run"
     # Everything else (rides, swims, run-labeled bike sessions) is aerobic
     # cross-training: excluded from running mileage, counted toward aerobic load.
@@ -77,7 +89,7 @@ def mcp_to_cache_activity(act: dict) -> dict:
     name = act.get("name", "")
     description = act.get("description", "")
     distance_m = summary.get("distance", 0) or 0
-    atype = classify_type(sport_type, name, description, distance_m)
+    atype = classify_type(sport_type, name, description, distance_m, summary)
 
     out = {
         "id": act.get("id"),

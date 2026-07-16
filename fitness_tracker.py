@@ -33,10 +33,15 @@ def _parse_csv_date(s: str):
 
 
 def load_runs() -> list:
-    """Load all runs as list of dicts with date, distance_mi, moving_min, avg_hr.
+    """Load real runs as list of dicts with date, distance_mi, moving_min, avg_hr.
 
     Sources from cache JSON (richer) and falls back to CSV for older runs.
+    This is the running-mileage stream: soft-deleted entries, bike sessions
+    logged as Run, and zero-distance entries never count (enrichment.is_real_run
+    is the single source of truth for that call).
     """
+    from enrichment import is_real_run
+
     runs = []
     seen_keys = set()  # dedupe by (date, distance_mi rounded)
 
@@ -47,7 +52,7 @@ def load_runs() -> list:
                 a = json.loads(p.read_text())
             except json.JSONDecodeError:
                 continue
-            if a.get("type") != "Run":
+            if a.get("type") != "Run" or not is_real_run(a):
                 continue
             try:
                 dt = datetime.fromisoformat(a["start_date_local"].replace("Z", "+00:00"))
@@ -80,35 +85,41 @@ def load_runs() -> list:
             for row in reader:
                 if len(row) < 32 or row[3] != "Run":
                     continue
-                try:
-                    dist_km = float(row[6]) if row[6] else 0
-                except ValueError:
-                    continue
+
+                def _f(idx):
+                    try:
+                        return float(row[idx]) if row[idx] else None
+                    except (ValueError, IndexError):
+                        return None
+
+                dist_km = _f(6) or 0
                 if dist_km == 0:
                     continue
                 dist_mi = dist_km * 0.621371
-                try:
-                    mt_min = float(row[16]) / 60 if row[16] else 0
-                except ValueError:
-                    mt_min = 0
+                mt_min = (_f(16) or 0) / 60
                 if mt_min == 0:
                     continue
                 dt = _parse_csv_date(row[1])
                 if not dt:
                     continue
+                probe = {
+                    "type": "Run",
+                    "distance": dist_km * 1000,
+                    "moving_time": mt_min * 60,
+                    "max_speed": _f(18),
+                    "average_speed": _f(19),
+                }
+                if not is_real_run(probe):
+                    continue
                 key = (dt.date().isoformat(), round(dist_mi, 1))
                 if key in seen_keys:
                     continue  # already loaded from cache
                 seen_keys.add(key)
-                try:
-                    avg_hr = float(row[31]) if row[31] else None
-                except ValueError:
-                    avg_hr = None
                 runs.append({
                     "date": dt,
                     "dist_mi": dist_mi,
                     "moving_min": mt_min,
-                    "avg_hr": avg_hr,
+                    "avg_hr": _f(31),
                     "src": "csv",
                 })
 
@@ -159,22 +170,72 @@ def strength_tss(a: dict = None) -> float:
     return float(config.strength_cfg().get("tss_per_session", 30))
 
 
+# Two cross-training records within this window on the same day are treated
+# as the same session logged twice (Ride from the bike computer + manual
+# bike-equiv "Run") and collapsed to the better record.
+CROSS_DEDUPE_SEC = 3 * 3600
+
+
+def _dedupe_cross(cross: list) -> list:
+    """Collapse same-day cross records whose start times overlap.
+
+    A bike session often gets double-logged (device Ride + manual bike-equiv
+    "Run"). Crediting both doubles the cross TSS. Keeps the better record:
+    HR present first, then the longer duration. Takes and returns
+    (datetime, activity) pairs.
+    """
+    by_day = defaultdict(list)
+    for dt, a in cross:
+        by_day[dt.date()].append((dt, a))
+
+    def _score(item):
+        _, a = item
+        return (1 if a.get("average_heartrate") else 0,
+                a.get("moving_time", 0) or 0)
+
+    out = []
+    for _, group in sorted(by_day.items()):
+        group.sort(key=lambda item: item[0])
+        kept = []
+        for item in group:
+            for i, k in enumerate(kept):
+                if abs((item[0] - k[0]).total_seconds()) <= CROSS_DEDUPE_SEC:
+                    kept[i] = max(k, item, key=_score)
+                    break
+            else:
+                kept.append(item)
+        out.extend(kept)
+    return out
+
+
 def load_sessions() -> list:
     """All load-bearing sessions with precomputed TSS.
 
     Runs (run-specific load) + cross-training + strength. This is the aerobic
     LOAD stream behind CTL/ATL/TSB. Running mileage (a separate stream) comes
     from load_runs() alone, so cross-training and lifting never inflate it.
+
+    Cross-training arrives under several types: mcp_adapter rewrites bike-as-run
+    and rides to "CrossTrain" at ingest, while the REST sync keeps raw types
+    ("Ride"/"VirtualRide", or a fake "Run" carrying the bike-equiv signature).
+    Classification routes all of them into the same crosstrain stream, and
+    same-day duplicates (device Ride + manual bike-equiv entry) are collapsed.
     """
-    sessions = [{"date": r["date"], "tss": compute_tss(r), "kind": "run"}
+    from enrichment import classify_activity
+
+    sessions = [{"date": r["date"], "tss": compute_tss(r), "kind": "run",
+                 "moving_min": r["moving_min"]}
                 for r in load_runs()]
     xt = config.crosstrain_cfg()
     st = config.strength_cfg()
+    cross_raw = []
     if CACHE_DIR.exists():
         for p in CACHE_DIR.glob("*.json"):
             try:
                 a = json.loads(p.read_text())
             except json.JSONDecodeError:
+                continue
+            if a.get("_deleted_at"):
                 continue
             t = a.get("type")
             try:
@@ -182,10 +243,20 @@ def load_sessions() -> list:
                     a["start_date_local"].replace("Z", "+00:00")).replace(tzinfo=None)
             except (KeyError, ValueError, AttributeError):
                 continue
-            if t == "CrossTrain" and xt.get("include_in_aerobic_load", True):
-                sessions.append({"date": dt, "tss": crosstrain_tss(a), "kind": "crosstrain"})
-            elif t == "WeightTraining" and st.get("include_in_aerobic_load", True):
-                sessions.append({"date": dt, "tss": strength_tss(a), "kind": "strength"})
+            if t == "WeightTraining":
+                if st.get("include_in_aerobic_load", True):
+                    sessions.append({
+                        "date": dt, "tss": strength_tss(a), "kind": "strength",
+                        "moving_min": (a.get("moving_time", 0) or 0) / 60.0,
+                    })
+            elif xt.get("include_in_aerobic_load", True) and \
+                    classify_activity(a) in ("ride", "bike_equiv"):
+                cross_raw.append((dt, a))
+    for dt, a in _dedupe_cross(cross_raw):
+        sessions.append({
+            "date": dt, "tss": crosstrain_tss(a), "kind": "crosstrain",
+            "moving_min": (a.get("moving_time", 0) or 0) / 60.0,
+        })
     sessions.sort(key=lambda s: s["date"])
     return sessions
 

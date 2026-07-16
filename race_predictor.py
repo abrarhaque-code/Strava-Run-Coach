@@ -72,6 +72,11 @@ def load_activities() -> list:
             continue
         if a.get("type") != "Run":
             continue
+        # Real runs only: a VDOT anchored on a bike session logged as a Run
+        # (or a soft-deleted entry) would poison every prediction downstream.
+        from enrichment import is_real_run
+        if not is_real_run(a):
+            continue
         dist_m = a.get("distance", 0) or 0
         time_s = a.get("moving_time", 0) or 0
         if dist_m <= 0 or time_s <= 0:

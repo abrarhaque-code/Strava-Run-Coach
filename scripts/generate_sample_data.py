@@ -60,6 +60,8 @@ COL_MAX_HR_EARLY = 7
 COL_REL_EFFORT_EARLY = 8
 COL_ELAPSED_S = 15
 COL_MOVING_S = 16
+COL_MAX_SPEED = 18
+COL_AVG_SPEED = 19
 COL_ELEV_GAIN = 20
 COL_AVG_CADENCE = 29
 COL_AVG_HR = 31
@@ -159,6 +161,12 @@ def _make_run(dt: datetime, name: str, dist_mi: float, pace: float,
     elev = round(dist_mi * rng.uniform(4.0, 11.0), 1)
     cadence = _cadence_for(pace, rng)
 
+    # Device-recorded runs always carry a max_speed above average. Without it
+    # a run reads as a manual entry, and a 10:00/mi easy run then sits exactly
+    # on the bike-equivalence speed signature and would be misclassified.
+    avg_speed = round(dist_m / moving_s, 3) if moving_s else 0.0
+    max_speed = round(avg_speed * rng.uniform(1.15, 1.35), 3)
+
     d = {
         "id": None,  # filled by caller
         "name": name,
@@ -170,6 +178,8 @@ def _make_run(dt: datetime, name: str, dist_mi: float, pace: float,
         "elapsed_time": elapsed_s,
         "average_heartrate": float(avg_hr),
         "max_heartrate": float(max_hr),
+        "average_speed": avg_speed,
+        "max_speed": max_speed,
         "total_elevation_gain": elev,
         "average_cadence": float(cadence),
     }
@@ -362,6 +372,10 @@ def _activity_to_csv_row(a: dict, header_len: int) -> list:
         if a.get("max_heartrate"):
             row[COL_MAX_HR_EARLY] = f"{float(a['max_heartrate']):.1f}"
             row[COL_AVG_HR] = f"{float(a.get('average_heartrate', 0) or 0):.1f}"
+        if a.get("max_speed"):
+            row[COL_MAX_SPEED] = f"{float(a['max_speed']):.3f}"
+        if a.get("average_speed"):
+            row[COL_AVG_SPEED] = f"{float(a['average_speed']):.3f}"
         row[COL_ELEV_GAIN] = f"{float(a.get('total_elevation_gain', 0) or 0):.1f}"
         if a.get("average_cadence"):
             row[COL_AVG_CADENCE] = f"{float(a['average_cadence']):.1f}"

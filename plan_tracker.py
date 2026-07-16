@@ -39,7 +39,9 @@ def _activity_distance_mi(a: dict) -> float:
 
 
 def _is_run(a: dict) -> bool:
-    return a.get("type") == "Run" and not a.get("_deleted_at")
+    """Real runs only — is_real_run also rejects soft-deleted entries."""
+    from enrichment import is_real_run
+    return a.get("type") == "Run" and is_real_run(a)
 
 
 def _runs_in_week(runs: list, week_start: date) -> list:
