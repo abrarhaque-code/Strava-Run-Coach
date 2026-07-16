@@ -56,8 +56,14 @@ def _runs_in_week(runs: list, week_start: date) -> list:
 # Weekly compliance
 # ---------------------------------------------------------------------------
 
-def weekly_compliance(week_num: int) -> dict:
+def weekly_compliance(week_num: int, today: Optional[date] = None,
+                      runs: Optional[list] = None) -> dict:
     """Compare actual training in a plan week to its targets.
+
+    A weeks_status entry overrides the computed status only when its
+    weeks_status_source is "manual" (or missing — legacy entries). Entries
+    written by reconcile (source "auto") are recomputed every time so late
+    syncs self-correct.
 
     Returns:
         {
@@ -70,7 +76,10 @@ def weekly_compliance(week_num: int) -> dict:
           "long_run_actual": float,
           "long_run_hit": bool,
           "run_count": int,
-          "status": "complete" | "in_progress" | "missed" | "upcoming",
+          "bike_sessions": int,
+          "bike_min": float,
+          "bike_equiv_mi": float,
+          "status": "complete" | "partial" | "in_progress" | "missed" | "upcoming",
         }
     """
     week = mp.week_by_num(week_num)
@@ -78,7 +87,8 @@ def weekly_compliance(week_num: int) -> dict:
         return {"error": f"Week {week_num} not in plan"}
 
     week_start = date.fromisoformat(week["start_date"])
-    today = date.today()
+    if today is None:
+        today = date.today()
 
     # Adjust for slide offset (effective_start = original + offset)
     state = mp.load_state()
@@ -86,13 +96,17 @@ def weekly_compliance(week_num: int) -> dict:
     effective_start = week_start + timedelta(weeks=offset)
     effective_end = effective_start + timedelta(days=7)
 
-    # Status from explicit override first
+    # Status override only honors MANUAL entries; auto entries are recomputed
     explicit = state.get("weeks_status", {}).get(str(week_num))
+    source = state.get("weeks_status_source", {}).get(str(week_num), "manual")
+    if source != "manual":
+        explicit = None
 
     # Load runs scoped to the effective window
-    from metrics import load_activities
-    all_runs = load_activities(activity_type="Run")
-    week_runs = _runs_in_week(all_runs, effective_start)
+    if runs is None:
+        from metrics import load_activities
+        runs = load_activities(activity_type="Run")
+    week_runs = _runs_in_week(runs, effective_start)
 
     miles_actual = sum(_activity_distance_mi(r) for r in week_runs)
     long_run_actual = max((_activity_distance_mi(r) for r in week_runs), default=0)
@@ -100,6 +114,12 @@ def weekly_compliance(week_num: int) -> dict:
     long_target = week["long_run_target"]
     miles_pct = miles_actual / target_mi if target_mi > 0 else 0
     long_run_hit = (long_run_actual >= long_target * 0.9) if long_target > 0 else True
+
+    # Cross-training credit (deduped rides + bike-equiv entries), reported
+    # separately — never blended into run mileage.
+    bike_sessions, bike_min = _cross_in_week(effective_start)
+    import config
+    bike_min_per_mi = float(config.crosstrain_cfg().get("bike_min_per_mi", 10.0))
 
     # Auto-classify status if no override
     if explicit:
@@ -122,19 +142,36 @@ def weekly_compliance(week_num: int) -> dict:
         "long_run_actual": round(long_run_actual, 1),
         "long_run_hit": long_run_hit,
         "run_count": len(week_runs),
+        "bike_sessions": bike_sessions,
+        "bike_min": round(bike_min, 0),
+        "bike_equiv_mi": round(bike_min / bike_min_per_mi, 1),
         "key_workout": week.get("key_workout"),
         "notes": week.get("notes", ""),
         "status": status,
     }
 
 
+def _cross_in_week(week_start: date) -> tuple:
+    """(session_count, total_minutes) of deduped cross-training in the week."""
+    try:
+        from fitness_tracker import load_sessions
+        end = week_start + timedelta(days=7)
+        cross = [s for s in load_sessions()
+                 if s.get("kind") == "crosstrain"
+                 and week_start <= s["date"].date() < end]
+        return len(cross), sum(s.get("moving_min", 0) for s in cross)
+    except Exception:
+        return 0, 0.0
+
+
 def _auto_classify(miles_pct: float, long_run_hit: bool) -> str:
-    """Heuristic: complete if hit 80%+ AND long run hit; missed if below 50%."""
+    """Heuristic: complete if hit 80%+ AND long run hit; missed if below 50%;
+    "partial" in between (an ENDED week that fell short but wasn't a miss)."""
     if miles_pct >= 0.8 and long_run_hit:
         return "complete"
     if miles_pct < 0.5:
         return "missed"
-    return "in_progress"
+    return "partial"
 
 
 def auto_classify_week_status(week_num: int) -> str:
@@ -156,12 +193,14 @@ def slide_plan(weeks: int = 1) -> None:
 def mark_week_complete(week_num: int) -> None:
     state = mp.load_state()
     state.setdefault("weeks_status", {})[str(week_num)] = "complete"
+    state.setdefault("weeks_status_source", {})[str(week_num)] = "manual"
     mp.save_state(state)
 
 
 def mark_week_missed(week_num: int) -> None:
     state = mp.load_state()
     state.setdefault("weeks_status", {})[str(week_num)] = "missed"
+    state.setdefault("weeks_status_source", {})[str(week_num)] = "manual"
     mp.save_state(state)
 
 
@@ -169,8 +208,11 @@ def mark_week_missed(week_num: int) -> None:
 # Metric resolution for decision points
 # ---------------------------------------------------------------------------
 
-def metric_value(metric_name: str) -> Optional[float]:
+def metric_value(metric_name: str, today: Optional[date] = None) -> Optional[float]:
     """Resolve a decision-point metric name to a current value."""
+    if today is None:
+        today = date.today()
+
     if metric_name == "ctl":
         try:
             from fitness_tracker import current_status
@@ -181,15 +223,15 @@ def metric_value(metric_name: str) -> Optional[float]:
     if metric_name == "longest_run_30d_mi":
         from metrics import load_activities
         runs = load_activities(activity_type="Run")
-        cutoff = date.today() - timedelta(days=30)
+        cutoff = today - timedelta(days=30)
         recent = [r for r in runs
-                  if _is_run(r) and (d := _activity_date(r)) is not None and d >= cutoff]
+                  if _is_run(r) and (d := _activity_date(r)) is not None
+                  and cutoff <= d <= today]
         return max((_activity_distance_mi(r) for r in recent), default=0)
 
     if metric_name == "weeks_at_4plus_of_4":
         from metrics import load_activities
         runs = load_activities(activity_type="Run")
-        today = date.today()
         count = 0
         for w in range(4):
             wk_start = today - timedelta(days=today.weekday()) - timedelta(weeks=w)
@@ -201,7 +243,6 @@ def metric_value(metric_name: str) -> Optional[float]:
     if metric_name == "weekly_mi_4wk_avg":
         from metrics import load_activities
         runs = load_activities(activity_type="Run")
-        today = date.today()
         total_mi = 0
         for w in range(4):
             wk_start = today - timedelta(days=today.weekday()) - timedelta(weeks=w)
@@ -214,44 +255,80 @@ def metric_value(metric_name: str) -> Optional[float]:
         return None
 
     if metric_name == "no_recent_injury_sidelined":
-        # Hard to determine from data alone; default optimistic
+        # Not derivable from data — answer lives in plan_state notes. Optimistic
+        # default, flagged as manual in the criterion label.
         return True
 
     if metric_name == "mp_segment_completed_mi":
-        # Find any run with an MP-paced segment of 12+ miles
+        # Longest contiguous MP-effort stretch inside a single recent run,
+        # verified from lap data (mile autolaps). Falls back to a whole-run
+        # proxy when laps are missing.
         from metrics import load_activities
         runs = load_activities(activity_type="Run")
-        cutoff = date.today() - timedelta(days=45)
-        best = 0
+        cutoff = today - timedelta(days=45)
+        mp_pace_limit = _mp_pace_limit()
+        if mp_pace_limit is None:
+            return None
+        best = 0.0
         for r in runs:
             if not _is_run(r):
                 continue
             d = _activity_date(r)
-            if not d or d < cutoff:
+            if not d or d < cutoff or d > today:
                 continue
-            # Crude proxy: distance >= 12mi AND avg pace <= 9:00 (close to MP 8:35)
-            dist = _activity_distance_mi(r)
-            mt = (r.get("moving_time", 0) or 0) / 60
-            if dist >= 12 and mt > 0:
-                pace = mt / dist
-                if pace <= 9.0:
-                    # Estimate MP-paced segment as full distance
-                    if dist > best:
-                        best = dist
+            laps = r.get("laps") or []
+            if laps:
+                best = max(best, _longest_mp_stretch_mi(laps, mp_pace_limit))
+            else:
+                dist = _activity_distance_mi(r)
+                mt = (r.get("moving_time", 0) or 0) / 60
+                if dist >= 10 and mt > 0 and (mt / dist) <= mp_pace_limit:
+                    best = max(best, dist)
         return best
 
     if metric_name == "recovery_quality":
-        # Placeholder
+        # Manual answer — optimistic default, flagged in the criterion label.
         return True
 
     return None
+
+
+def _mp_pace_limit() -> Optional[float]:
+    """Marathon-pace ceiling (min/mi) for lap verification: plan pace + 0:30.
+
+    Prefers the plan's own marathon_pace; falls back to the active race's
+    goal pace from config. No hardcoded athlete numbers.
+    """
+    try:
+        return float(mp.paces()["marathon_pace"]) + 0.5
+    except Exception:
+        pass
+    try:
+        import config
+        return float(config.active_race()["goal_pace_min_per_mi"]) + 0.5
+    except Exception:
+        return None
+
+
+def _longest_mp_stretch_mi(laps: list, pace_limit_min_mi: float) -> float:
+    """Longest run of consecutive laps at or under the MP pace limit, in miles."""
+    best = cur = 0.0
+    for lap in laps:
+        d_mi = (lap.get("distance", 0) or 0) / 1609.34
+        t_min = (lap.get("moving_time", 0) or 0) / 60
+        if d_mi >= 0.2 and t_min > 0 and (t_min / d_mi) <= pace_limit_min_mi:
+            cur += d_mi
+            best = max(best, cur)
+        else:
+            cur = 0.0
+    return best
 
 
 # ---------------------------------------------------------------------------
 # Decision point evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_decision_point(dp_id: str) -> dict:
+def evaluate_decision_point(dp_id: str, today: Optional[date] = None) -> dict:
     """Evaluate a decision point against current data.
 
     Returns:
@@ -271,7 +348,8 @@ def evaluate_decision_point(dp_id: str) -> dict:
     if not dp:
         return {"error": f"Decision point {dp_id} not found"}
 
-    today = date.today()
+    if today is None:
+        today = date.today()
     eval_date = date.fromisoformat(dp["evaluate_date"])
 
     # Apply slide offset to evaluation date
@@ -292,7 +370,7 @@ def evaluate_decision_point(dp_id: str) -> dict:
     optional_total = 0
 
     for crit in dp["criteria"]:
-        actual = metric_value(crit["metric"])
+        actual = metric_value(crit["metric"], today=today)
         target = crit["value"]
         op = crit["op"]
         is_optional = crit.get("optional", False)
@@ -357,8 +435,9 @@ def evaluate_decision_point(dp_id: str) -> dict:
     }
 
 
-def evaluate_all_decision_points() -> list:
-    return [evaluate_decision_point(d["id"]) for d in mp.all_decision_points()]
+def evaluate_all_decision_points(today: Optional[date] = None) -> list:
+    return [evaluate_decision_point(d["id"], today=today)
+            for d in mp.all_decision_points()]
 
 
 # ---------------------------------------------------------------------------

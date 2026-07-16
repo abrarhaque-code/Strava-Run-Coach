@@ -36,22 +36,37 @@ def load_plan() -> dict:
     return plan
 
 
+STATE_DEFAULTS = {
+    "schema_version": 2,
+    "active_race": "auto",
+    "slide_offset_weeks": 0,
+    "weeks_status": {},         # week_num -> "complete"|"missed"|...
+    "weeks_status_source": {},  # week_num -> "manual"|"auto"
+    "weeks_actuals": {},        # week_num -> reconciled actuals dict
+    "notes": {},                # week_num -> [timestamped note strings]
+    "last_reconciled": None,
+}
+
+
 def load_state() -> dict:
-    """Load plan state (slide offset, week status). Returns defaults if missing."""
+    """Load plan state (slide offset, week status, reconciled actuals).
+
+    Returns defaults if the file is missing or corrupt; always contains
+    every STATE_DEFAULTS key so readers can .get() without guards.
+    """
+    state = dict(STATE_DEFAULTS)
+    state["weeks_status"] = {}
+    state["weeks_status_source"] = {}
+    state["weeks_actuals"] = {}
+    state["notes"] = {}
     if not STATE_PATH.exists():
-        return {
-            "active_race": "auto",
-            "slide_offset_weeks": 0,
-            "weeks_status": {},
-        }
+        return state
     try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        loaded = json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {
-            "active_race": "auto",
-            "slide_offset_weeks": 0,
-            "weeks_status": {},
-        }
+        return state
+    state.update(loaded)
+    return state
 
 
 def save_state(state: dict) -> None:

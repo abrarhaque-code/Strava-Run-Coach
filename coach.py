@@ -12,6 +12,8 @@ Usage:
     python3 coach.py scenario   # base-build scenarios (20/25/30 -> peak -> marathon)
     python3 coach.py plan       # generate a parametric 16-week marathon plan
     python3 coach.py analyze --from-mcp <file.json>  # ingest Strava MCP JSON, then report
+    python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
+    python3 coach.py note "..." # log an in-the-moment adjustment to this week
     python3 coach.py init       # first-run setup wizard
 
 Examples:
@@ -43,6 +45,22 @@ def _section(title: str):
     print("#" * 70)
     print()
     sys.stdout.flush()
+
+
+def _auto_reconcile():
+    """Record actual-vs-planned after fresh data lands.
+
+    Only meaningful when the active race carries a structured plan JSON;
+    degrades to a one-line notice otherwise so sync/analyze never break.
+    """
+    try:
+        import config
+        if not config.has_structured_plan(config.active_race()):
+            return
+        from reconcile import reconcile
+        reconcile()
+    except Exception as e:
+        print(f"  [coach] reconcile skipped: {e}")
 
 
 def full_report(save_brief: bool = False):
@@ -104,11 +122,21 @@ def main():
         "dashboard": lambda: _run_module("dashboard"),
         "scenario": lambda: _run_module("scenario", extra),
         "plan": lambda: _run_module("plan_generator", extra),
+        "reconcile": lambda: _run_module("reconcile", extra),
         "init": lambda: _run_module("setup"),
     }
 
+    if cmd == "note":
+        if not extra:
+            print('Usage: python3 coach.py note "what changed and why"')
+            sys.exit(1)
+        from reconcile import add_note
+        add_note(" ".join(extra))
+        return
+
     if cmd == "sync":
         _run_module("strava_sync")
+        _auto_reconcile()
         full_report(save_brief=True)
         # Dashboard auto-regen happens at end of sync; also kick a fresh one
         # in case sync was a no-op (still want dashboard updated)
@@ -132,6 +160,7 @@ def main():
         print(f"Ingested {summary['written']} activities from {path}")
         for t, c in sorted(summary["by_type"].items()):
             print(f"  {t:14} {c}")
+        _auto_reconcile()
         _section("RACE FORECAST")
         _run_module("race_predictor")
         _section("BASE-BUILD SCENARIOS")
