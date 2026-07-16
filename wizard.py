@@ -6,8 +6,10 @@ high-value athlete fields and your primary race, then offers to generate sample
 data so you can see output immediately. Stdlib only, plain input() prompts.
 
 Run it:
-    python3 setup.py
-    python3 setup.py --from-mcp-zones zones.json   # non-interactive: calibrate
+    python3 wizard.py            (or: python3 coach.py init)
+    python3 wizard.py --sample   # non-interactive: config default + sample
+        # data, so `python3 coach.py` shows a full report on a fresh clone
+    python3 wizard.py --from-mcp-zones zones.json   # non-interactive: calibrate
         # HR caps + threshold/tempo bands from a saved Strava-MCP
         # get_athlete_zones payload
 """
@@ -252,6 +254,28 @@ def apply_mcp_zones(path: str) -> int:
     return 0
 
 
+def run_sample_bootstrap() -> int:
+    """Non-interactive demo bootstrap: default config + generated history.
+
+    One command between `git clone` and a fully populated report/dashboard.
+    Never overwrites an existing config.json — a returning user keeps their
+    numbers and just gets fresh sample data.
+    """
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.write_text(EXAMPLE_PATH.read_text(encoding="utf-8"),
+                               encoding="utf-8")
+        print(f"Wrote {CONFIG_PATH.name} from the example defaults "
+              "(edit it anytime, or rerun without --sample to personalize).")
+    try:
+        sys.path.insert(0, str(_HERE))
+        from scripts import generate_sample_data
+        generate_sample_data.main()
+    except Exception as e:
+        print(f"Could not generate sample data: {e}")
+        return 1
+    return 0  # the generator already prints the "Next: coach.py" pointer
+
+
 def _maybe_generate_sample_data() -> None:
     print()
     if not _confirm("Generate sample training data now so you can see output?"):
@@ -274,10 +298,12 @@ def main() -> None:
         pass
 
     args = sys.argv[1:]
+    if "--sample" in args:
+        sys.exit(run_sample_bootstrap())
     if "--from-mcp-zones" in args:
         idx = args.index("--from-mcp-zones")
         if idx + 1 >= len(args):
-            print("Usage: python3 setup.py --from-mcp-zones <zones.json>")
+            print("Usage: python3 wizard.py --from-mcp-zones <zones.json>")
             sys.exit(1)
         sys.exit(apply_mcp_zones(args[idx + 1]))
 

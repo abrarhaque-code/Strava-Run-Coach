@@ -64,6 +64,12 @@ def _auto_reconcile():
         print(f"  [coach] reconcile skipped: {e}")
 
 
+def _has_any_data() -> bool:
+    csv_path = SCRIPT_DIR / "activities.csv"
+    cache = SCRIPT_DIR / "data" / "strava_cache" / "activities"
+    return csv_path.exists() or (cache.exists() and any(cache.glob("*.json")))
+
+
 def full_report(save_brief: bool = False):
     """Print the full coach report — everything in one shot.
 
@@ -71,6 +77,14 @@ def full_report(save_brief: bool = False):
     external consumer (a notification script, a cron job, etc.) can read a
     fresh markdown copy.
     """
+    if not _has_any_data():
+        # A hint beats six empty report sections. Never auto-generate — a
+        # user who intends to sync real data shouldn't get fake miles.
+        print("No training data yet.")
+        print("  Demo with sample data:  python3 coach.py init --sample")
+        print("  Or connect Strava:      see README 'Connect your Strava'")
+        return
+
     _section("DAILY BRIEF")
     _run_module("daily_brief", ["--save"] if save_brief else None)
 
@@ -125,7 +139,7 @@ def main():
         "plan": lambda: _run_module("plan_generator", extra),
         "reconcile": lambda: _run_module("reconcile", extra),
         "trends": lambda: _run_module("trends"),
-        "init": lambda: _run_module("setup", extra),
+        "init": lambda: _run_module("wizard", extra),
     }
 
     if cmd == "note":

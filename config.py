@@ -48,7 +48,7 @@ def load_config() -> dict:
     if path == EXAMPLE_PATH:
         print(
             "[config] config.json not found; using config.example.json. "
-            "Run `python3 setup.py` to create your own.",
+            "Run `python3 coach.py init` to create your own.",
             file=sys.stderr,
         )
     cfg = json.loads(path.read_text(encoding="utf-8"))

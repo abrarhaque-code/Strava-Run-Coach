@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import setup as wizard
+import wizard
 
 # Live-sampled get_athlete_zones payload (values are Strava-derived, not the
 # athlete's calibrated numbers — the mapper's caveat note covers that).
