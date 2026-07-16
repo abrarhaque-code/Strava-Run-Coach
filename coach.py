@@ -14,6 +14,7 @@ Usage:
     python3 coach.py analyze --from-mcp <file.json>  # ingest Strava MCP JSON, then report
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
     python3 coach.py note "..." # log an in-the-moment adjustment to this week
+    python3 coach.py trends     # long-horizon lenses: drift, efficiency, recovery
     python3 coach.py init       # first-run setup wizard
 
 Examples:
@@ -123,6 +124,7 @@ def main():
         "scenario": lambda: _run_module("scenario", extra),
         "plan": lambda: _run_module("plan_generator", extra),
         "reconcile": lambda: _run_module("reconcile", extra),
+        "trends": lambda: _run_module("trends"),
         "init": lambda: _run_module("setup", extra),
     }
 

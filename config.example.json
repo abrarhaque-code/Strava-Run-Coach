@@ -93,5 +93,11 @@
   },
   "report": {
     "motivational_footer": false
+  },
+  "trends": {
+    "controlled_hr_band": [145, 155],
+    "hard_hr_floor": 155,
+    "hard_dist_mi": 6,
+    "long_run_min_mi": 6
   }
 }

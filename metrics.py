@@ -169,6 +169,9 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "max_speed": _row_float(18),
                 "average_speed": _row_float(19),
                 "total_elevation_gain": _row_float(20),
+                # Needed by trends.py (drift/effort lenses) on CSV-only rows.
+                "max_heartrate": _row_float(7),
+                "relative_effort": _row_float(8),
             })
     return activities
 
