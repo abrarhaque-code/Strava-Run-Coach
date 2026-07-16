@@ -176,6 +176,10 @@ def scenario_cfg() -> dict:
     return load_config().get("scenario", {})
 
 
+def report_cfg() -> dict:
+    return load_config().get("report", {})
+
+
 # ---------------------------------------------------------------------------
 # Races + active-race resolution
 # ---------------------------------------------------------------------------

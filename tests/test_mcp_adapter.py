@@ -13,7 +13,7 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(classify_type("Run", "Evening Run", "", 5000), "Run")
 
     def test_bike_logged_as_run_is_crosstrain(self):
-        # Abrar logs Zone-2 bikes as "Run"; description betrays them.
+        # Zone-2 bikes logged as "Run"; the description betrays them.
         self.assertEqual(
             classify_type("Run", "Zone 2", "121 bpm - 30 min bike", 4800), "CrossTrain")
 
@@ -21,7 +21,7 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(classify_type("Ride", "Evening Ride", "", 0), "CrossTrain")
 
     def test_weight_training_is_strength(self):
-        self.assertEqual(classify_type("WeightTraining", "Full Body", "Hevy", 0), "WeightTraining")
+        self.assertEqual(classify_type("WeightTraining", "Full Body", "Gym", 0), "WeightTraining")
 
 
 class TestConvert(unittest.TestCase):

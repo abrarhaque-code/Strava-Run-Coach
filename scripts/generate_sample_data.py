@@ -371,7 +371,7 @@ def _activity_to_csv_row(a: dict, header_len: int) -> list:
         row[COL_REL_EFFORT_EARLY] = str(re)
     else:  # Weight Training: elapsed seconds live in index 5
         row[COL_ELAPSED_LIFT] = str(int(a.get("elapsed_time", 0) or 0))
-        row[COL_DESC] = a.get("description", "Logged with Hevy")
+        row[COL_DESC] = a.get("description", "Strength session")
         row[COL_DISTANCE_KM] = "0"
 
     return row

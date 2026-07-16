@@ -50,7 +50,7 @@ class TestAnalysisParsing(unittest.TestCase):
         lift[1] = "Jun 02, 2026, 8:00:00 PM"
         lift[2] = "Upper Body"
         lift[3] = "Weight Training"
-        lift[4] = "Logged with Hevy"
+        lift[4] = "Strength session"
         lift[5] = "2400"          # elapsed seconds -> 40 min
         lift[6] = "0"
 

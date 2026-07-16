@@ -70,15 +70,18 @@ def full_report(save_brief: bool = False):
     _section("WEEKLY STATUS")
     _run_module("weekly_check")
 
-    print()
-    print("=" * 70)
-    print("  THE BOTTOM LINE")
-    print("=" * 70)
-    print()
-    print("  You're not training to feel comfortable. You're training to win.")
-    print("  Every easy run protects a hard one. Every hard run earns the next.")
-    print("  Show up. Run the plan. Trust the data.")
-    print()
+    # Off by default: a pep talk reads differently on someone else's terminal.
+    import config
+    if config.report_cfg().get("motivational_footer", False):
+        print()
+        print("=" * 70)
+        print("  THE BOTTOM LINE")
+        print("=" * 70)
+        print()
+        print("  You're not training to feel comfortable. You're training to win.")
+        print("  Every easy run protects a hard one. Every hard run earns the next.")
+        print("  Show up. Run the plan. Trust the data.")
+        print()
 
 
 def main():

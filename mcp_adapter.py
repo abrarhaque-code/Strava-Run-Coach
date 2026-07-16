@@ -50,7 +50,8 @@ def looks_like_crosstrain(sport_type: str, name: str, description: str) -> bool:
     """True if this should count as aerobic cross-training, not running mileage.
 
     Catches both non-run sports and runs whose name/description say "bike",
-    "ride", etc. (Abrar logs Zone-2 bike sessions as "Run" through a niggle.)
+    "ride", etc. (e.g. an athlete logging Zone-2 bike sessions as "Run" while
+    working through a niggle.)
     """
     if sport_type and sport_type not in _RUN_SPORTS and sport_type not in _STRENGTH_SPORTS:
         return True

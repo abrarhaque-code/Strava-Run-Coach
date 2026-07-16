@@ -80,5 +80,8 @@
     "taper_weeks": 3,
     "peak_multiplier": 1.9,
     "entries": [20, 25, 30]
+  },
+  "report": {
+    "motivational_footer": false
   }
 }
