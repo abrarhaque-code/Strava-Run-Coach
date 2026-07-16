@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mcp_adapter import classify_type, mcp_to_cache_activity, convert, write_to_cache
+from mcp_adapter import (
+    classify_type, convert, ingest_mcp_file, merge_performance,
+    mcp_to_cache_activity, write_to_cache,
+)
 
 
 class TestClassify(unittest.TestCase):
@@ -77,6 +80,101 @@ class TestConvert(unittest.TestCase):
             self.assertEqual(len(list(cache.glob("*.json"))), 1)
             written = json.loads((cache / "42.json").read_text())
             self.assertEqual(written["id"], "42")
+
+    def test_write_to_cache_enriches(self):
+        # MCP-ingested activities must carry the same precomputed fields the
+        # REST sync writes, or downstream consumers read stale/naive values.
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d)
+            write_to_cache(convert([self._act(id="7")]), cache)
+            a = json.loads((cache / "7.json").read_text())
+            self.assertEqual(a["_activity_class"], "run")
+            self.assertIn("_run_tss", a)
+            self.assertGreater(a["_enriched_v"], 0)
+
+
+class TestAdapterV2(unittest.TestCase):
+    """Pagination, performance merge, multi-file ingest."""
+
+    def _act(self, aid, dist=8616.78, mt=2716, name="Evening Run"):
+        return {"id": aid, "name": name, "sport_type": "Run",
+                "start_local": "2026-07-15T19:33:27",
+                "summary": {"distance": dist, "moving_time": mt,
+                            "elapsed_time": mt, "elevation_gain": 0,
+                            "avg_speed": dist / mt, "max_speed": 3.86,
+                            "avg_cadence": 79.9}}
+
+    # Live-sampled get_activity_performance shape (laps use avg_hr/max_hr).
+    _PERF = {
+        "has_heartrate": True, "has_device_watts": True,
+        "average_heartrate": 132.041, "max_heartrate": 161,
+        "average_watts": 343.161, "average_cadence": 79.9034, "calories": 473,
+        "laps": [
+            {"elapsed_time": 539, "moving_time": 539, "start_index": 0,
+             "end_index": 540, "distance": 1609.34, "elevation_gain": 0,
+             "avg_watts": 324.283, "max_speed": 3.7, "avg_hr": 119.787,
+             "max_hr": 131, "avg_grade": 0, "avg_cadence": 78.7384},
+            {"elapsed_time": 512, "moving_time": 512, "start_index": 541,
+             "end_index": 1052, "distance": 1609.34, "elevation_gain": 0,
+             "avg_watts": 340.092, "max_speed": 3.68, "avg_hr": 126.1,
+             "max_hr": 134, "avg_grade": 0, "avg_cadence": 80.1859},
+        ],
+        "best_efforts": [
+            {"name": "1 mile", "elapsed_time": 500, "distance": 1609.34},
+            {"name": "", "elapsed_time": 0},  # malformed: must be dropped
+        ],
+    }
+
+    def test_multi_page_array_convert(self):
+        pages = [
+            {"activities": [self._act("1")], "has_next_page": True,
+             "end_cursor": "abc"},
+            {"activities": [self._act("2")], "has_next_page": False,
+             "end_cursor": "def"},
+        ]
+        out = convert(pages)
+        self.assertEqual(sorted(o["id"] for o in out), ["1", "2"])
+
+    def test_performance_merge_flips_tss_and_maps_laps(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d)
+            write_to_cache(convert([self._act("19330270757")]), cache)
+            before = json.loads((cache / "19330270757.json").read_text())
+            self.assertGreater(before["_run_tss"], 0)  # pace-based
+
+            n = merge_performance({"19330270757": dict(self._PERF)}, cache)
+            self.assertEqual(n, 1)
+            a = json.loads((cache / "19330270757.json").read_text())
+            self.assertEqual(a["average_heartrate"], 132.041)
+            # HR-based TSS: (132.041/165)^2 * (2716/3600) * 100 ~= 48.3
+            self.assertAlmostEqual(a["_run_tss"], 48.3, delta=1.5)
+            self.assertNotAlmostEqual(a["_run_tss"], before["_run_tss"], delta=5)
+            # Laps renamed to REST fields + ordinal lap_index
+            self.assertEqual(a["laps"][0]["average_heartrate"], 119.787)
+            self.assertEqual(a["laps"][0]["max_heartrate"], 131)
+            self.assertEqual(a["laps"][0]["lap_index"], 1)
+            self.assertNotIn("avg_hr", a["laps"][0])
+            # Malformed best_efforts entry dropped, valid one kept
+            self.assertEqual(len(a["best_efforts"]), 1)
+            self.assertEqual(a["best_efforts"][0]["name"], "1 mile")
+
+    def test_merge_skips_unknown_ids(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(
+                merge_performance({"nope": dict(self._PERF)}, Path(d)), 0)
+
+    def test_ingest_multiple_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            p1 = d / "page1.json"
+            p2 = d / "page2.json"
+            p1.write_text(json.dumps({"activities": [self._act("11")]}))
+            p2.write_text(json.dumps({"activities": [self._act("22")]}))
+            cache = d / "cache"
+            summary = ingest_mcp_file([str(p1), str(p2)], cache_dir=cache)
+            self.assertEqual(summary["written"], 2)
+            # CSV rebuild auto-skips when cache_dir is overridden (tests)
+            self.assertEqual(summary["csv_rows"], 0)
 
 
 if __name__ == "__main__":

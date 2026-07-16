@@ -7,6 +7,9 @@ data so you can see output immediately. Stdlib only, plain input() prompts.
 
 Run it:
     python3 setup.py
+    python3 setup.py --from-mcp-zones zones.json   # non-interactive: calibrate
+        # HR caps + threshold/tempo bands from a saved Strava-MCP
+        # get_athlete_zones payload
 """
 
 import json
@@ -144,6 +147,111 @@ def _fmt_pace(minutes: float) -> str:
     return f"{m}:{s:02d}"
 
 
+# ---------------------------------------------------------------------------
+# Strava-MCP zones -> config calibration
+# ---------------------------------------------------------------------------
+
+def _pace_from_mps(speed) -> float:
+    """m/s -> min/mi. Run pace zones from the MCP arrive as speed bands."""
+    try:
+        speed = float(speed)
+    except (TypeError, ValueError):
+        return None
+    if speed <= 0:
+        return None
+    return round((1609.34 / speed) / 60.0, 2)
+
+
+def zones_to_config_patch(zones: dict) -> tuple:
+    """Map a Strava-MCP get_athlete_zones payload onto config fields.
+
+    Conservative by design — only boundaries with a standard 5-zone
+    interpretation are mapped:
+      HR Z1 top -> recovery_hr_cap, HR Z2 top -> easy_hr_cap,
+      HR Z4 floor -> threshold_hr (the classic LTHR convention),
+      run Z4 midpoint -> threshold_pace, run Z3/Z4 bands -> tempo/threshold
+      pace zones (floor = slower boundary) with HR ranges attached.
+    max_hr is NOT derived: zone formulas differ by source, so a wrong
+    inference would poison every HR-based number. Returns (patch, notes).
+    """
+    patch = {}
+    notes = []
+
+    hr = zones.get("heart_rate_zones") or []
+    if len(hr) >= 5:
+        ath = patch.setdefault("athlete", {})
+        if hr[0].get("max"):
+            ath["recovery_hr_cap"] = int(hr[0]["max"])
+            notes.append(f"recovery_hr_cap = {ath['recovery_hr_cap']} (HR Z1 top)")
+        if hr[1].get("max"):
+            ath["easy_hr_cap"] = int(hr[1]["max"])
+            notes.append(f"easy_hr_cap = {ath['easy_hr_cap']} (HR Z2 top)")
+        if hr[3].get("min"):
+            ath["threshold_hr"] = int(hr[3]["min"])
+            notes.append(f"threshold_hr = {ath['threshold_hr']} (HR Z4 floor)")
+
+    run = zones.get("run_zones") or []
+    if len(run) >= 5:
+        z3, z4 = run[2], run[3]
+        tempo_floor = _pace_from_mps(z3.get("min"))
+        tempo_ceil = _pace_from_mps(z3.get("max"))
+        thr_floor = _pace_from_mps(z4.get("min"))
+        thr_ceil = _pace_from_mps(z4.get("max"))
+        if z4.get("min") and z4.get("max"):
+            mid = (float(z4["min"]) + float(z4["max"])) / 2.0
+            patch.setdefault("athlete", {})["threshold_pace_min_per_mi"] = \
+                _pace_from_mps(mid)
+            notes.append(
+                f"threshold_pace_min_per_mi = "
+                f"{patch['athlete']['threshold_pace_min_per_mi']} (run Z4 midpoint)")
+        pz = patch.setdefault("pace_zones", {})
+        if tempo_floor and tempo_ceil:
+            pz["tempo"] = {"floor": tempo_floor, "ceiling": tempo_ceil}
+            if len(hr) >= 3 and hr[2].get("min") and hr[2].get("max"):
+                pz["tempo"]["hr_range"] = [int(hr[2]["min"]), int(hr[2]["max"])]
+            notes.append(f"pace_zones.tempo = {tempo_floor}-{tempo_ceil} (run Z3)")
+        if thr_floor and thr_ceil:
+            pz["threshold"] = {"floor": thr_floor, "ceiling": thr_ceil}
+            if len(hr) >= 4 and hr[3].get("min") and hr[3].get("max"):
+                pz["threshold"]["hr_range"] = [int(hr[3]["min"]), int(hr[3]["max"])]
+            notes.append(f"pace_zones.threshold = {thr_floor}-{thr_ceil} (run Z4)")
+
+    src_bits = []
+    for k in ("heart_rate_zone_source", "run_zone_source"):
+        if zones.get(k):
+            src_bits.append(f"{k}={zones[k]}")
+    if src_bits:
+        notes.append("sources: " + ", ".join(src_bits) +
+                     " (formulaic sources are a starting point, not a calibration)")
+    return patch, notes
+
+
+def _deep_merge(dst: dict, patch: dict) -> None:
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+
+
+def apply_mcp_zones(path: str) -> int:
+    """Non-interactive: patch config.json from a saved get_athlete_zones JSON."""
+    zones = json.loads(Path(path).read_text(encoding="utf-8"))
+    patch, notes = zones_to_config_patch(zones)
+    if not patch:
+        print("No mappable zone fields found in that payload.")
+        return 1
+    base = CONFIG_PATH if CONFIG_PATH.exists() else EXAMPLE_PATH
+    cfg = json.loads(base.read_text(encoding="utf-8"))
+    _deep_merge(cfg, patch)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    print(f"Wrote {CONFIG_PATH.name} with zone-derived fields:")
+    for n in notes:
+        print(f"  {n}")
+    print("Everything else keeps its previous value. Edit config.json to adjust.")
+    return 0
+
+
 def _maybe_generate_sample_data() -> None:
     print()
     if not _confirm("Generate sample training data now so you can see output?"):
@@ -164,6 +272,14 @@ def main() -> None:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
+    args = sys.argv[1:]
+    if "--from-mcp-zones" in args:
+        idx = args.index("--from-mcp-zones")
+        if idx + 1 >= len(args):
+            print("Usage: python3 setup.py --from-mcp-zones <zones.json>")
+            sys.exit(1)
+        sys.exit(apply_mcp_zones(args[idx + 1]))
 
     if not EXAMPLE_PATH.exists():
         print(f"Missing {EXAMPLE_PATH.name}. Cannot run setup.")

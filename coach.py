@@ -123,7 +123,7 @@ def main():
         "scenario": lambda: _run_module("scenario", extra),
         "plan": lambda: _run_module("plan_generator", extra),
         "reconcile": lambda: _run_module("reconcile", extra),
-        "init": lambda: _run_module("setup"),
+        "init": lambda: _run_module("setup", extra),
     }
 
     if cmd == "note":
@@ -144,22 +144,44 @@ def main():
         return
 
     if cmd == "analyze":
-        # Ingest a Strava MCP list_activities JSON dump, then report. Lets any
+        # Ingest Strava MCP list_activities JSON dump(s), then report. Lets any
         # Claude session with the Strava MCP drive the coach with no OAuth/sync.
+        # Multiple files = multiple pages from the has_next_page/end_cursor
+        # loop; --performance folds in get_activity_performance payloads
+        # (HR + laps) so TSS goes HR-based and lap analysis lights up.
         from mcp_adapter import ingest_mcp_file
-        path = None
-        for i, a in enumerate(extra):
+        paths = []
+        performance = None
+        i = 0
+        while i < len(extra):
+            a = extra[i]
             if a == "--from-mcp" and i + 1 < len(extra):
-                path = extra[i + 1]
+                paths.append(extra[i + 1])
+                i += 2
             elif a.startswith("--from-mcp="):
-                path = a.split("=", 1)[1]
-        if not path:
-            print("Usage: python3 coach.py analyze --from-mcp <file.json>")
+                paths.append(a.split("=", 1)[1])
+                i += 1
+            elif a == "--performance" and i + 1 < len(extra):
+                performance = extra[i + 1]
+                i += 2
+            elif a.startswith("--performance="):
+                performance = a.split("=", 1)[1]
+                i += 1
+            elif not a.startswith("-") and paths:
+                paths.append(a)  # extra page files after --from-mcp
+                i += 1
+            else:
+                i += 1
+        if not paths:
+            print("Usage: python3 coach.py analyze --from-mcp <file.json>... "
+                  "[--performance <file-or-dir>]")
             sys.exit(1)
-        summary = ingest_mcp_file(path)
-        print(f"Ingested {summary['written']} activities from {path}")
+        summary = ingest_mcp_file(paths, performance=performance)
+        print(f"Ingested {summary['written']} activities from {len(paths)} file(s)")
         for t, c in sorted(summary["by_type"].items()):
             print(f"  {t:14} {c}")
+        if summary.get("performance_merged"):
+            print(f"  performance merged into {summary['performance_merged']} activities")
         _auto_reconcile()
         _section("RACE FORECAST")
         _run_module("race_predictor")
