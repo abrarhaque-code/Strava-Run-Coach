@@ -133,19 +133,47 @@ class RateLimitState:
                 f"{self.usage_daily}/{self.limit_daily} overall")
 
 
+STRAVA_ENV_KEYS = (
+    "STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET",
+    "STRAVA_ACCESS_TOKEN", "STRAVA_REFRESH_TOKEN",
+    "STRAVA_TOKEN_EXPIRES_AT",
+)
+
+
 def _load_env() -> dict:
-    """Read .env into a dict. No external deps."""
-    if not ENV_PATH.exists():
-        raise FileNotFoundError(f"Missing {ENV_PATH}. Copy .env.example and fill in.")
+    """Read Strava credentials: .env file first, os.environ overlays it.
+
+    The environment-variable path enables headless runs (cloud sessions,
+    CI) where .env doesn't exist. Raises only when neither source provides
+    anything. NOTE: tokens refreshed during an env-var-seeded run are
+    persisted to .env for the session but the source env vars go stale.
+    """
+
     env = {}
-    for line in ENV_PATH.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, val = line.split("=", 1)
-        env[key.strip()] = val.strip()
+    if ENV_PATH.exists():
+        for line in ENV_PATH.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            env[key.strip()] = val.strip()
+
+    overlaid = False
+    for key in STRAVA_ENV_KEYS:
+        if os.environ.get(key):
+            env[key] = os.environ[key].strip()
+            overlaid = True
+
+    if not env:
+        raise FileNotFoundError(
+            f"Missing {ENV_PATH} and no STRAVA_* environment variables set. "
+            "Copy .env.example and fill in, or export the STRAVA_* vars."
+        )
+    if overlaid and not ENV_PATH.exists():
+        print("  [strava_api] Credentials from environment variables "
+              "(ephemeral: refreshed tokens will not persist beyond this run).")
     return env
 
 
