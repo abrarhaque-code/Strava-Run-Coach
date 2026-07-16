@@ -45,6 +45,16 @@
     }
   ],
   "active_race": "auto",
+  "race_history": [
+    {
+      "id": "sample_fall_10k",
+      "name": "Fall 10K",
+      "date": "2025-10-12",
+      "distance_mi": 6.2,
+      "result_time": "52:30",
+      "avg_hr": null
+    }
+  ],
   "theme": {
     "klein": "#002FA7",
     "klein_bright": "#0047FF",

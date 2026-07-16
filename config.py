@@ -92,6 +92,19 @@ def _validate(cfg: dict) -> None:
             f"active_race '{ar}' is not 'auto' and does not match any race id"
         )
 
+    # race_history is optional; validate entries only when present
+    for h in cfg.get("race_history", []) or []:
+        try:
+            date.fromisoformat(h["date"])
+        except (KeyError, ValueError, TypeError) as e:
+            raise ValueError(f"race_history entry {h.get('id', '?')} has bad date: {e}")
+        if not (h.get("distance_mi") or 0) > 0:
+            raise ValueError(f"race_history entry {h.get('id', '?')} needs distance_mi > 0")
+        if goal_time_to_sec(h.get("result_time", "")) <= 0:
+            raise ValueError(
+                f"race_history entry {h.get('id', '?')} has unparseable result_time"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Athlete getters
@@ -186,6 +199,12 @@ def report_cfg() -> dict:
 
 def races() -> list:
     return load_config()["races"]
+
+
+def race_history() -> list:
+    """Completed race results (optional). Strongest VDOT anchors available:
+    an actual race beats any training-run inference."""
+    return load_config().get("race_history", [])
 
 
 def race_by_id(race_id: str):
