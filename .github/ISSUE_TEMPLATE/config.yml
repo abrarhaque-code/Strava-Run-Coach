@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/abrarhaque-code/Strava-Run-Coach/discussions
+    about: How-to questions and training-methodology discussion fit better here than in issues.

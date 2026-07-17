@@ -72,6 +72,11 @@ def load_activities() -> list:
             continue
         if a.get("type") != "Run":
             continue
+        # Real runs only: a VDOT anchored on a bike session logged as a Run
+        # (or a soft-deleted entry) would poison every prediction downstream.
+        from enrichment import is_real_run
+        if not is_real_run(a):
+            continue
         dist_m = a.get("distance", 0) or 0
         time_s = a.get("moving_time", 0) or 0
         if dist_m <= 0 or time_s <= 0:
@@ -97,13 +102,21 @@ def load_activities() -> list:
     return sorted(out, key=lambda x: x["date"])
 
 
+# Race results stay a valid fitness anchor much longer than training-run
+# scans: fitness decays slowly, and a race is a maximal, measured effort.
+RACE_HISTORY_MAX_AGE_DAYS = 180
+
+
 # ---- Best recent effort -> VDOT ----
 def current_fitness_vdot(activities: list, today: datetime = None) -> tuple:
-    """Best fitness signal in last 30 days.
+    """Best fitness signal in last 30 days (plus recent race results).
 
-    Computes VDOT from BOTH:
+    Computes VDOT from:
     1. Whole-run VDOT for each recent run (>= 3km)
     2. Strava-provided best_efforts at standard distances (1mi, 5K, 10K, etc)
+    3. Actual race results from config race_history (<= 180 days old) — the
+       strongest anchor, and the fix for the cold-start default on a fresh
+       install with a known recent result.
     Then returns the MAX VDOT across all signals.
 
     The MAX is the right choice because we're asking: "what's the best fitness
@@ -145,6 +158,30 @@ def current_fitness_vdot(activities: list, today: datetime = None) -> tuple:
                     "date": b["date"],
                     "pace_str": b["pace_str"],
                     "distance_mi": 0,  # not relevant here
+                })
+    except Exception:
+        pass
+
+    # 3. Actual race results from config (a race beats any training inference)
+    try:
+        import config as _config
+        for h in _config.race_history():
+            d = datetime.fromisoformat(h["date"])
+            if d > today or (today - d).days > RACE_HISTORY_MAX_AGE_DAYS:
+                continue
+            t_sec = _config.goal_time_to_sec(h.get("result_time", ""))
+            dist_m = (h.get("distance_mi") or 0) * 1609.34
+            if t_sec <= 0 or dist_m <= 0:
+                continue
+            v = compute_vdot(dist_m, t_sec)
+            if v > 0:
+                candidates.append({
+                    "vdot": v,
+                    "note": "race result",
+                    "name": h.get("name", h.get("id", "")),
+                    "date": h["date"],
+                    "distance_mi": h.get("distance_mi", 0),
+                    "pace_str": _pace_str(t_sec, dist_m),
                 })
     except Exception:
         pass

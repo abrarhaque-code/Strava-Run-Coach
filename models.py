@@ -58,7 +58,7 @@ class RunActivity:
 
 @dataclass
 class StrengthSession:
-    """A weight training session from Strava (logged via Hevy)."""
+    """A weight training session from Strava (usually synced from a lifting app)."""
     date: datetime
     name: str
     elapsed_min: float

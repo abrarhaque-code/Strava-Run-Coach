@@ -45,18 +45,32 @@
     }
   ],
   "active_race": "auto",
+  "race_history": [
+    {
+      "id": "sample_fall_10k",
+      "name": "Fall 10K",
+      "date": "2025-10-12",
+      "distance_mi": 6.2,
+      "result_time": "52:30",
+      "avg_hr": null
+    }
+  ],
   "theme": {
-    "klein": "#002FA7",
-    "klein_bright": "#0047FF",
-    "paper": "#F7F6F1",
-    "paper_light": "#FFFEFB",
-    "paper_dark": "#F1F0EA",
-    "ink": "#0A0A0A",
-    "vermilion": "#E5341F",
+    "_comment": "Yves Klein Blue design-system tokens: IKB ultramarine + warm riso paper + ink, flame accent at ~5%.",
+    "klein": "#1D1DE6",
+    "klein_bright": "#4A4AF0",
+    "paper": "#EFEBDE",
+    "paper_light": "#F6F3EA",
+    "paper_dark": "#E7E3D6",
+    "ink": "#0B0B0C",
+    "ink_soft": "#5C5C5E",
+    "ink_faint": "#9A9A96",
+    "hairline": "#D9D5C7",
+    "vermilion": "#F0400C",
     "white": "#FFFFFF",
-    "tint": "#B9C6EE",
-    "heatmap": ["#DCE3F4", "#A9BCE6", "#6E8BD0", "#2F56B3", "#002FA7"],
-    "display_font": "Space Grotesk",
+    "tint": "#DEDEFB",
+    "heatmap": ["#DEDEFB", "#8A8AF6", "#4A4AF0", "#1D1DE6", "#0B0B8A"],
+    "display_font": "Archivo",
     "mono_font": "Space Mono"
   },
   "calendar": {
@@ -80,5 +94,14 @@
     "taper_weeks": 3,
     "peak_multiplier": 1.9,
     "entries": [20, 25, 30]
+  },
+  "report": {
+    "motivational_footer": false
+  },
+  "trends": {
+    "controlled_hr_band": [145, 155],
+    "hard_hr_floor": 155,
+    "hard_dist_mi": 6,
+    "long_run_min_mi": 6
   }
 }

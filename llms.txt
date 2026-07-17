@@ -1,0 +1,42 @@
+# strava-run-coach
+
+> Stdlib-only Python running coach: Strava history in (bulk-export CSV, REST
+> sync, or Strava MCP JSON) -> Daniels VDOT race prediction, CTL/ATL/TSB
+> fitness tracking, periodized plan generation with .ics export, plan
+> reconciliation, long-horizon trends, and a self-contained HTML dashboard.
+> `coach.py` is the single entry point; no pip installs, ever.
+
+Key facts: all athlete numbers live in `config.json` (falls back to
+`config.example.json`); `enrichment.is_real_run()` is the single filter for
+"is this a real run"; Strava MCP list summaries carry no heart rate — merge
+`get_activity_performance` payloads via `--performance`; never commit
+anything under `data/`.
+
+## Docs
+
+- [README](README.md): quickstart, command table, Use-with-Claude setup
+- [Methodology](docs/METHODOLOGY.md): the named, cited models (VDOT, TSS,
+  CTL/ATL/TSB, two-stream load, ACWR caveats, goal-probability heuristic)
+- [Architecture](docs/ARCHITECTURE.md): module map + data interface contract
+- [CLAUDE.md](CLAUDE.md): working notes for AI agents (commands, hard rules)
+- [Contributing](CONTRIBUTING.md): tests, stdlib-only rule, style
+
+## Agent surface
+
+- [strava-coach-analyze skill](.claude/skills/strava-coach-analyze/SKILL.md):
+  MCP pagination + ingestion recipe
+- [weekly-review skill](.claude/skills/weekly-review/SKILL.md)
+- [race-forecast skill](.claude/skills/race-forecast/SKILL.md)
+- [build-plan skill](.claude/skills/build-plan/SKILL.md)
+- [Plugin manifest](.claude-plugin/plugin.json): install via
+  `/plugin marketplace add abrarhaque-code/Strava-Run-Coach`
+- [MCP config](.mcp.json): official Strava MCP at https://mcp.strava.com/mcp
+
+## Code entry points
+
+- [coach.py](coach.py): CLI router (full/brief/forecast/fitness/trends/week/
+  scenario/plan/analyze/reconcile/dashboard/init)
+- [config.example.json](config.example.json): every tunable, with the Yves
+  Klein Blue dashboard theme tokens
+- [mcp_adapter.py](mcp_adapter.py): Strava MCP JSON -> cache (+ performance
+  merge, CSV rebuild)

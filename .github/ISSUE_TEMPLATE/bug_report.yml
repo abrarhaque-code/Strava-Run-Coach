@@ -1,0 +1,50 @@
+name: Bug report
+description: Something produced wrong output, crashed, or misbehaved.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. One ask up front: **do not paste your personal
+        activity data** (real GPS traces, heart-rate files, activity IDs).
+        Reproduce with the generated sample data when you can
+        (`python3 coach.py init --sample`).
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      placeholder: python3 coach.py forecast
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Paste the relevant output or traceback (scrub anything personal).
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: data-source
+    attributes:
+      label: Data source
+      options:
+        - Generated sample data (init --sample)
+        - Strava bulk-export CSV
+        - Strava API sync
+        - Strava MCP ingest (analyze --from-mcp)
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version + OS
+      placeholder: "3.12 on macOS 15"
+    validations:
+      required: true

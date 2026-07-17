@@ -175,13 +175,39 @@ def endurance_anchor_vdot(activities: list, today=None) -> tuple:
     """
     today = today or date.today()
     cutoff = _as_date(today) - timedelta(days=120)
+
+    # Race results from config.race_history are the strongest endurance
+    # anchors when recent and long enough (half-ish or beyond).
+    hist_best = None
+    try:
+        import config as _config
+        for h in _config.race_history():
+            d = date.fromisoformat(h["date"])
+            if not (cutoff <= d <= _as_date(today)):
+                continue
+            if (h.get("distance_mi") or 0) < 10.0:
+                continue
+            t_sec = _config.goal_time_to_sec(h.get("result_time", ""))
+            if t_sec <= 0:
+                continue
+            v = compute_vdot(h["distance_mi"] * 1609.34, t_sec)
+            if v > 0 and (hist_best is None or v > hist_best["vdot"]):
+                hist_best = {
+                    "vdot": v,
+                    "name": h.get("name", "race result"),
+                    "date": h["date"],
+                    "distance_mi": h["distance_mi"],
+                }
+    except Exception:
+        pass
+
     pools = [
         [a for a in activities if _as_date(a["date"]) >= cutoff and a["distance_mi"] >= 10.0],
         [a for a in activities if _as_date(a["date"]) >= cutoff and a["distance_mi"] >= 6.0],
         [a for a in activities if _as_date(a["date"]) >= cutoff and a["distance_mi"] >= 3.0],
     ]
-    for pool in pools:
-        best = None
+    for i, pool in enumerate(pools):
+        best = hist_best if i == 0 else None
         for a in pool:
             v = compute_vdot(a["distance_m"], a["time_sec"])
             if v > 0 and (best is None or v > best["vdot"]):

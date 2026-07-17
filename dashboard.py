@@ -5,11 +5,14 @@ external JS. The only external reference is the Google Fonts <link> for the
 display + mono typefaces (with system fallbacks). Charts are pure CSS or inline
 SVG. Open in any browser.
 
-Design: an editorial "International Klein Blue / cobalt" poster. Warm off-white
-ground, full-height cobalt countdown panel, oversized display numerals, mono
-eyebrow labels with section index numbers (01..07), hairline rules, a cobalt
-monochrome TSS heatmap, CSS bar charts, and inline-SVG line chart + probability
-ring. Every colour + font is driven by config.theme().
+Design: the Yves Klein Blue design system rendered as an editorial poster —
+IKB ultramarine (#1D1DE6) on warm riso-paper stock, near-black ink, a flame
+accent used at ~5%, hard edges and hairline rules (no soft shadows, no
+motion). Full-height ultramarine countdown panel, oversized display numerals
+(Archivo), mono eyebrow labels with section index numbers (01..07), an IKB
+monochrome TSS heatmap, CSS bar charts, and inline-SVG line chart +
+probability ring. Every colour + font is driven by config.theme(); the
+example values are the design system's tokens verbatim.
 
 Sections, in order:
   TOPBAR
@@ -79,16 +82,26 @@ def _signed(n: int, unit: str = "") -> str:
 
 
 def _theme_vars(t: dict) -> str:
-    """Build the :root CSS block from config.theme()."""
+    """Build the :root CSS block from config.theme().
+
+    Values default from config.example.json's Yves Klein Blue design-system
+    tokens (IKB ultramarine / warm paper / ink / flame accent). The three
+    ink/hairline shades are optional keys with token defaults, so a
+    pre-existing config.json without them keeps rendering unchanged.
+    """
     heat = t["heatmap"]
+    ink2 = t.get("ink_soft", "#5C5C5E")    # ds --ink-500: secondary text
+    ink3 = t.get("ink_faint", "#9A9A96")   # ds --ink-300: muted labels
+    hair = t.get("hairline", "#D9D5C7")    # ds --paper-200: hairline rules
     return (
         ":root{\n"
         f"  --klein:{t['klein']}; --klein-br:{t['klein_bright']};\n"
         f"  --paper:{t['paper']}; --paper-lt:{t['paper_light']}; --paper-dk:{t['paper_dark']};\n"
         f"  --ink:{t['ink']}; --verm:{t['vermilion']}; --white:{t['white']};\n"
+        f"  --ink-2:{ink2}; --ink-3:{ink3}; --hair:{hair};\n"
         f"  --c1:{heat[0]}; --c2:{heat[1]}; --c3:{heat[2]}; --c4:{heat[3]}; --c5:{heat[4]};\n"
         f"  --tint:{t['tint']};\n"
-        "  --rule:var(--ink); --rule-lt:rgba(10,10,10,.16);\n"
+        "  --rule:var(--ink); --rule-lt:var(--hair); --hair-inv:rgba(255,255,255,.28);\n"
         "}"
     )
 
@@ -123,47 +136,49 @@ body::before{{
 .eyebrow{{display:flex; align-items:baseline; gap:18px; margin-bottom:26px}}
 .eyebrow .idx{{font-family:'{mono}',monospace; font-size:13px; font-weight:700; color:var(--klein); letter-spacing:.04em}}
 .eyebrow .lbl{{font-family:'{mono}',monospace; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.22em; color:var(--ink)}}
-.eyebrow .rt{{margin-left:auto; font-family:'{mono}',monospace; font-size:11px; letter-spacing:.18em; color:rgba(10,10,10,.5); text-transform:uppercase}}
+.eyebrow .rt{{margin-left:auto; font-family:'{mono}',monospace; font-size:11px; letter-spacing:.18em; color:var(--ink-3); text-transform:uppercase}}
 
 .topbar{{display:flex; align-items:center; justify-content:space-between;
   padding:13px 56px; font-family:'{mono}',monospace; font-size:11px;
   letter-spacing:.24em; text-transform:uppercase}}
-.topbar .l{{font-weight:700}}
-.topbar .c{{color:rgba(10,10,10,.55); letter-spacing:.3em}}
-.topbar .r{{color:rgba(10,10,10,.55)}}
+.topbar .l{{font-weight:700; display:flex; align-items:center}}
+.topbar .l .mark{{width:9px;height:9px;background:var(--klein);margin-right:10px}}
+.topbar .c{{color:var(--ink-2); letter-spacing:.3em}}
+.topbar .r{{color:var(--ink-2)}}
 
 .mast{{display:grid; grid-template-columns:repeat(12,1fr)}}
 .mast-main{{grid-column:1/9; padding:46px 56px 40px}}
 .mast-eye{{display:flex; align-items:center; gap:14px; font-family:'{mono}',monospace;
   font-size:11.5px; letter-spacing:.24em; text-transform:uppercase; font-weight:700; margin-bottom:22px}}
 .mast-eye .dot{{width:9px;height:9px;background:var(--verm);border-radius:50%}}
-.mast-eye .sub{{color:rgba(10,10,10,.5); font-weight:400; letter-spacing:.18em}}
+.mast-eye .sub{{color:var(--ink-3); font-weight:400; letter-spacing:.18em}}
 .title{{font-size:104px; line-height:.9; font-weight:700; letter-spacing:-.04em; margin:6px 0 0}}
 .title .t1{{display:inline-block; font-size:60px; line-height:1; letter-spacing:-.02em}}
 .title .b2{{color:var(--klein)}}
 .athlete{{display:flex; align-items:baseline; gap:14px; margin-top:30px;
   font-family:'{mono}',monospace; text-transform:uppercase}}
 .athlete .nm{{font-size:15px; font-weight:700; letter-spacing:.18em}}
-.athlete .meta{{font-size:11.5px; letter-spacing:.16em; color:rgba(10,10,10,.55)}}
+.athlete .meta{{font-size:11.5px; letter-spacing:.16em; color:var(--ink-2)}}
 
 .mast-stats{{display:flex; align-items:flex-end; gap:0; margin-top:40px; border-top:1px solid var(--rule-lt); padding-top:26px}}
 .kpi{{padding-right:22px; margin-right:22px; border-right:1px solid var(--rule-lt)}}
 .kpi:last-child{{border-right:0;margin-right:0;padding-right:0}}
-.kpi .k-lbl{{font-family:'{mono}',monospace; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:rgba(10,10,10,.55); margin-bottom:9px}}
+.kpi .k-lbl{{font-family:'{mono}',monospace; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-2); margin-bottom:9px}}
 .kpi .k-val{{font-size:30px; font-weight:700; letter-spacing:-.025em; line-height:1; white-space:nowrap}}
-.kpi .k-val small{{font-size:13px; font-weight:500; color:rgba(10,10,10,.55); letter-spacing:0; margin-left:3px}}
+.kpi .k-val small{{font-size:13px; font-weight:500; color:var(--ink-2); letter-spacing:0; margin-left:3px}}
 .ring-wrap{{display:flex; align-items:center; gap:12px}}
 .ring{{width:64px;height:64px;flex:none}}
 .ring .rtxt{{font-family:'{disp}'; font-weight:700; font-size:24px; fill:var(--ink)}}
-.ring-cap{{font-family:'{mono}',monospace; font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:rgba(10,10,10,.55); line-height:1.5; max-width:72px}}
+.ring-cap{{font-family:'{mono}',monospace; font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-2); line-height:1.5; max-width:72px}}
 
-.mast-count{{grid-column:9/13; background:var(--klein); color:#fff; padding:44px 48px 40px;
+.mast-count{{grid-column:9/13; background:var(--klein); color:var(--white); padding:44px 48px 40px;
   display:flex; flex-direction:column; justify-content:space-between}}
 .mast-count .c-eye{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.26em; text-transform:uppercase; color:var(--tint)}}
 .count-big{{display:flex; align-items:flex-start; gap:10px; margin-top:14px}}
 .count-big .num{{font-size:140px; line-height:.82; font-weight:700; letter-spacing:-.05em}}
+.count-big .num.wide{{font-size:104px; line-height:1.1}}  /* 3-digit countdowns */
 .count-big .days{{font-family:'{mono}',monospace; font-size:13px; letter-spacing:.22em; text-transform:uppercase; color:var(--tint); margin-top:14px}}
-.race-day{{margin-top:30px; border-top:1px solid rgba(255,255,255,.28); padding-top:18px; display:flex; justify-content:space-between; align-items:baseline}}
+.race-day{{margin-top:30px; border-top:1px solid var(--hair-inv); padding-top:18px; display:flex; justify-content:space-between; align-items:baseline}}
 .race-day .rd-l{{font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--tint)}}
 .race-day .rd-v{{font-size:30px; font-weight:700; letter-spacing:-.02em}}
 .race-day .rd-v small{{font-family:'{mono}',monospace; font-size:11px; font-weight:400; color:var(--tint); letter-spacing:.16em; margin-left:8px}}
@@ -178,42 +193,42 @@ body::before{{
 .fit-grid{{display:flex; gap:0; margin-bottom:30px}}
 .fit-stat{{padding-right:40px; margin-right:40px; border-right:1px solid var(--rule-lt)}}
 .fit-stat:last-child{{border:0;margin:0;padding:0}}
-.fit-stat .fs-lbl{{font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:rgba(10,10,10,.55); margin-bottom:12px}}
+.fit-stat .fs-lbl{{font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-2); margin-bottom:12px}}
 .fit-stat .fs-lbl b{{color:var(--ink)}}
 .fit-stat .fs-val{{font-size:78px; line-height:.86; font-weight:700; letter-spacing:-.03em}}
 .fit-stat .fs-val.neg{{color:var(--verm)}}
-.fit-stat .fs-sub{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.06em; color:rgba(10,10,10,.55); margin-top:10px}}
+.fit-stat .fs-sub{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.06em; color:var(--ink-2); margin-top:10px}}
 .chart-head{{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px}}
 .chart-head .ph{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase}}
 .chart-head .ph b{{color:var(--klein)}}
-.legend-inline{{display:flex; gap:18px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:rgba(10,10,10,.6)}}
+.legend-inline{{display:flex; gap:18px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2)}}
 .legend-inline span{{display:flex;align-items:center;gap:7px}}
 .legend-inline i{{width:16px;height:3px;display:inline-block}}
 .line-chart{{width:100%; height:auto; display:block}}
 
 .pred-vdot{{font-size:78px; font-weight:700; letter-spacing:-.03em; line-height:.9}}
-.pred-vdot small{{font-size:16px; font-weight:500; color:rgba(10,10,10,.55); letter-spacing:.04em}}
+.pred-vdot small{{font-size:16px; font-weight:500; color:var(--ink-2); letter-spacing:.04em}}
 .pred-row{{display:flex; justify-content:space-between; align-items:baseline; padding:15px 0; border-top:1px solid var(--rule-lt)}}
-.pred-row .pr-l{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:rgba(10,10,10,.6)}}
+.pred-row .pr-l{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-2)}}
 .pred-row .pr-v{{font-size:22px; font-weight:700; letter-spacing:-.01em}}
 .pred-row .pr-v.blue{{color:var(--klein)}}
 .verdict{{margin-top:24px; padding-top:22px; border-top:1px solid var(--ink); font-size:19px; line-height:1.4; font-weight:500; letter-spacing:-.01em}}
 .verdict .vk{{font-family:'{mono}',monospace; font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--klein); display:block; margin-bottom:12px; font-weight:700}}
 
 .heat-wrap{{display:flex; flex-direction:column}}
-.heat-months{{display:grid; grid-template-columns:repeat(13,1fr); margin:0 0 8px 26px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.14em; color:rgba(10,10,10,.5)}}
+.heat-months{{display:grid; grid-template-columns:repeat(13,1fr); margin:0 0 8px 26px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.14em; color:var(--ink-3)}}
 .heat-body{{display:flex; gap:8px}}
-.heat-days{{display:grid; grid-template-rows:repeat(7,1fr); gap:5px; font-family:'{mono}',monospace; font-size:9px; letter-spacing:.1em; color:rgba(10,10,10,.4); width:18px}}
+.heat-days{{display:grid; grid-template-rows:repeat(7,1fr); gap:5px; font-family:'{mono}',monospace; font-size:9px; letter-spacing:.1em; color:var(--ink-3); width:18px}}
 .heat-days span{{display:flex;align-items:center;height:100%}}
 .heat-grid{{display:grid; grid-template-rows:repeat(7,1fr); grid-auto-flow:column; gap:5px; flex:1}}
 .hc{{aspect-ratio:1; border-radius:1px}}
-.hc.l0{{background:transparent; box-shadow:inset 0 0 0 1px rgba(10,10,10,.10)}}
+.hc.l0{{background:transparent; box-shadow:inset 0 0 0 1px var(--hair)}}
 .hc.l1{{background:var(--c1)}} .hc.l2{{background:var(--c2)}} .hc.l3{{background:var(--c3)}}
 .hc.l4{{background:var(--c4)}} .hc.l5{{background:var(--c5)}}
 .heat-foot{{display:flex; align-items:center; justify-content:space-between; margin-top:22px; padding-top:20px; border-top:1px solid var(--rule-lt)}}
-.heat-foot .note{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.06em; color:rgba(10,10,10,.6)}}
+.heat-foot .note{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.06em; color:var(--ink-2)}}
 .heat-foot .note b{{color:var(--ink)}}
-.heat-legend{{display:flex; align-items:center; gap:8px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:rgba(10,10,10,.55)}}
+.heat-legend{{display:flex; align-items:center; gap:8px; font-family:'{mono}',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-2)}}
 .heat-legend .sw{{width:15px;height:15px;border-radius:1px}}
 
 .mile-chart{{display:flex; align-items:flex-end; gap:10px; height:230px; margin-top:8px}}
@@ -222,8 +237,8 @@ body::before{{
 .bar{{width:100%; max-width:34px; display:flex; flex-direction:column; justify-content:flex-end}}
 .seg.easy{{background:var(--c3)}}
 .seg.long{{background:var(--klein)}}
-.bar-wk{{font-family:'{mono}',monospace; font-size:9.5px; color:rgba(10,10,10,.45); margin-top:9px; letter-spacing:.08em}}
-.mile-foot{{display:flex; gap:24px; margin-top:22px; padding-top:18px; border-top:1px solid var(--rule-lt); font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:rgba(10,10,10,.6)}}
+.bar-wk{{font-family:'{mono}',monospace; font-size:9.5px; color:var(--ink-3); margin-top:9px; letter-spacing:.08em}}
+.mile-foot{{display:flex; gap:24px; margin-top:22px; padding-top:18px; border-top:1px solid var(--rule-lt); font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2)}}
 .mile-foot span{{display:flex;align-items:center;gap:8px}}
 .mile-foot i{{width:13px;height:13px;display:inline-block;border-radius:1px}}
 
@@ -233,23 +248,23 @@ body::before{{
 .cons-cell:nth-child(1),.cons-cell:nth-child(2){{padding-top:4px}}
 .cons-cell:nth-child(3),.cons-cell:nth-child(4){{border-bottom:0}}
 .cons-cell .c-val{{font-size:52px; font-weight:700; letter-spacing:-.03em; line-height:.9}}
-.cons-cell .c-val small{{font-size:16px; font-weight:500; color:rgba(10,10,10,.55)}}
-.cons-cell .c-lbl{{font-family:'{mono}',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:rgba(10,10,10,.55); margin-top:12px; line-height:1.5}}
+.cons-cell .c-val small{{font-size:16px; font-weight:500; color:var(--ink-2)}}
+.cons-cell .c-lbl{{font-family:'{mono}',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-2); margin-top:12px; line-height:1.5}}
 
 .eff-table{{width:100%; border-collapse:collapse}}
 .eff-table td{{padding:17px 0; border-top:1px solid var(--rule-lt); vertical-align:baseline}}
 .eff-table tr:first-child td{{border-top:0}}
-.ev-idx{{font-family:'{mono}',monospace; font-size:11px; color:rgba(10,10,10,.4); width:38px; font-weight:700}}
+.ev-idx{{font-family:'{mono}',monospace; font-size:11px; color:var(--ink-3); width:38px; font-weight:700}}
 .ev-dist{{font-family:'{mono}',monospace; font-size:13px; font-weight:700; letter-spacing:.12em; width:78px}}
 .ev-time{{font-size:30px; font-weight:700; letter-spacing:-.02em}}
-.ev-time.muted{{font-size:30px; color:rgba(10,10,10,.25)}}
-.ev-pace{{font-family:'{mono}',monospace; font-size:12px; color:rgba(10,10,10,.55); text-align:right; letter-spacing:.04em}}
-.ev-date{{font-family:'{mono}',monospace; font-size:11px; color:rgba(10,10,10,.45); text-align:right; width:74px; letter-spacing:.08em}}
+.ev-time.muted{{font-size:30px; color:var(--ink-3)}}
+.ev-pace{{font-family:'{mono}',monospace; font-size:12px; color:var(--ink-2); text-align:right; letter-spacing:.04em}}
+.ev-date{{font-family:'{mono}',monospace; font-size:11px; color:var(--ink-3); text-align:right; width:74px; letter-spacing:.08em}}
 
 .plan-top{{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:30px}}
 .plan-top .pt-wk{{font-size:30px; font-weight:700; letter-spacing:-.02em; white-space:nowrap}}
-.plan-top .pt-wk small{{font-family:'{mono}',monospace; font-size:12px; font-weight:400; color:rgba(10,10,10,.55); letter-spacing:.06em}}
-.plan-top .pt-mi{{font-family:'{mono}',monospace; font-size:11.5px; line-height:1.7; letter-spacing:.08em; text-transform:uppercase; text-align:right; color:rgba(10,10,10,.55); white-space:nowrap}}
+.plan-top .pt-wk small{{font-family:'{mono}',monospace; font-size:12px; font-weight:400; color:var(--ink-2); letter-spacing:.06em}}
+.plan-top .pt-mi{{font-family:'{mono}',monospace; font-size:11.5px; line-height:1.7; letter-spacing:.08em; text-transform:uppercase; text-align:right; color:var(--ink-2); white-space:nowrap}}
 .plan-top .pt-mi b{{color:var(--ink); font-size:13px}}
 .phases{{display:grid; gap:6px}}
 .phase .ph-bar{{height:10px; background:var(--c1)}}
@@ -257,18 +272,18 @@ body::before{{
 .phase.cur .ph-bar{{background:var(--klein); position:relative}}
 .phase.cur .ph-bar::after{{content:"";position:absolute;left:36%;top:-4px;bottom:-4px;width:2px;background:var(--verm)}}
 .phase .ph-lbl{{font-family:'{mono}',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin-top:12px; font-weight:700}}
-.phase .ph-wk{{font-family:'{mono}',monospace; font-size:9.5px; letter-spacing:.1em; color:rgba(10,10,10,.45); margin-top:5px}}
+.phase .ph-wk{{font-family:'{mono}',monospace; font-size:9.5px; letter-spacing:.1em; color:var(--ink-3); margin-top:5px}}
 .phase.cur .ph-lbl{{color:var(--klein)}}
-.phase:not(.cur):not(.done) .ph-lbl{{color:rgba(10,10,10,.4)}}
+.phase:not(.cur):not(.done) .ph-lbl{{color:var(--ink-3)}}
 .wk-prog{{margin-top:32px; padding-top:24px; border-top:1px solid var(--rule-lt)}}
 .wk-prog .wp-head{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}}
-.wk-prog .wp-l{{font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:rgba(10,10,10,.6)}}
+.wk-prog .wp-l{{font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-2)}}
 .wk-prog .wp-v{{font-family:'{mono}',monospace; font-size:12px; font-weight:700}}
 .wk-prog .wp-track{{height:14px; background:var(--c1); position:relative}}
 .wk-prog .wp-fill{{height:100%; background:var(--klein)}}
 
 .foot{{display:flex; justify-content:space-between; align-items:center; padding:20px 56px;
-  font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:rgba(10,10,10,.5)}}
+  font-family:'{mono}',monospace; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3)}}
 .foot .fl b{{color:var(--ink)}}
 
 @media (max-width:760px){{
@@ -292,7 +307,7 @@ body::before{{
 def _topbar() -> str:
     return """  <!-- TOPBAR -->
   <div class="topbar band">
-    <div class="l">strava-run-coach</div>
+    <div class="l"><span class="mark"></span>strava-run-coach</div>
     <div class="c">Training Report</div>
   </div>"""
 
@@ -305,6 +320,8 @@ def _masthead(race: dict) -> str:
     pred = race.get("predicted_time", "N/A")
     pct = race.get("probability_pct", 0)
     days = race.get("days_to_race", 0)
+    # 3+ digits at 140px overflow the countdown panel; drop to the wide size.
+    num_cls = " wide" if len(str(days)) > 2 else ""
     race_day = race.get("race_day_str", "")
     weekday = race.get("race_weekday", "")
     athlete = race.get("athlete_name", "Athlete").upper()
@@ -351,7 +368,7 @@ def _masthead(race: dict) -> str:
     <aside class="mast-count">
       <div>
         <div class="c-eye">Countdown</div>
-        <div class="count-big"><span class="num">{days}</span><span class="days">days<br>to race</span></div>
+        <div class="count-big"><span class="num{num_cls}">{days}</span><span class="days">days<br>to race</span></div>
       </div>
       <div class="race-day">
         <span class="rd-l">Race day</span>
@@ -461,7 +478,7 @@ def _fitness_prediction_split(fit: dict, race: dict) -> str:
     <!-- RACE PREDICTION -->
     <div class="col">
       <div class="eyebrow"><span class="idx">02</span><span class="lbl">Race Prediction</span></div>
-      <div class="fs-lbl mono" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(10,10,10,.55);margin-bottom:10px">VDOT</div>
+      <div class="fs-lbl mono" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2);margin-bottom:10px">VDOT</div>
       <div class="pred-vdot">{vdot}</div>
       <div style="margin-top:26px">
         <div class="pred-row"><span class="pr-l">Predicted {dist_label}</span><span class="pr-v blue">{pred}</span></div>

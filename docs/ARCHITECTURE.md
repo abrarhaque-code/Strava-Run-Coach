@@ -42,6 +42,15 @@ same data shape. That means:
   pre-computes analytical fields under a reserved `_*` namespace (`_run_tss`,
   `_pace_zone`, `_workout_type`). Downstream code reads those instead of
   recomputing.
+- `enrichment.classify_activity()` is the single source of truth for "is this
+  a real run?". It buckets every activity as `run` / `treadmill_run` (count
+  everywhere), `bike_equiv` (a bike session manually logged as a Run at the
+  configured `crosstrain.bike_min_per_mi` equivalence speed — cross-training
+  TSS only, never run mileage), `invalid` (zero-distance Run entries), `ride`
+  (real rides and mcp-typed CrossTrain), or `other`. **Every run-metric
+  consumer filters through `enrichment.is_real_run()`; if you add a consumer,
+  use that helper.** Bumping `ENRICHMENT_VERSION` re-enriches the whole cache
+  on the next sync.
 
 Because both the CSV and the cache are gitignored, none of an athlete's data is
 ever committed. The HTML dashboard renders locally and the data never leaves the

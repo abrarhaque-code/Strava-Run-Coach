@@ -1,0 +1,17 @@
+{
+  "name": "strava-run-coach",
+  "description": "Marketplace for the strava-run-coach plugin: an AI-native, stdlib-only running coach with Strava MCP ingestion, VDOT forecasts, fitness tracking, and plan generation.",
+  "owner": {
+    "name": "strava-run-coach contributors",
+    "url": "https://github.com/abrarhaque-code/Strava-Run-Coach"
+  },
+  "plugins": [
+    {
+      "name": "strava-run-coach",
+      "source": "./",
+      "description": "AI-native running coach: Strava MCP ingestion, Daniels VDOT race forecasts, CTL/ATL/TSB fitness tracking, periodized plan generation with calendar export, and weekly plan-compliance reviews. Zero dependencies - the whole engine is Python stdlib.",
+      "category": "productivity",
+      "tags": ["running", "strava", "coaching", "fitness", "training"]
+    }
+  ]
+}

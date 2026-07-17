@@ -52,7 +52,8 @@ STANDARD_EFFORT_DISTANCES = {
 
 def load_activities(source: str = "merged",
                     include_deleted: bool = False,
-                    activity_type: Optional[str] = None) -> list:
+                    activity_type: Optional[str] = None,
+                    include_bike_equiv: bool = False) -> list:
     """Load all activities. Returns list of dicts.
 
     Parameters
@@ -67,22 +68,36 @@ def load_activities(source: str = "merged",
         Include soft-deleted activities (those with `_deleted_at`).
     activity_type : str, optional
         Filter to "Run", "Weight Training", etc.
+    include_bike_equiv : bool
+        When filtering to "Run", also return bike sessions manually logged
+        as Run at the configured equivalence speed (class "bike_equiv") and
+        zero-distance Run entries (class "invalid"). Default False: "Run"
+        means real runs only.
     """
     if source == "csv":
-        return _load_from_csv(activity_type)
-    if source == "cache":
-        return _load_from_cache(include_deleted, activity_type)
+        acts = _load_from_csv(activity_type)
+    elif source == "cache":
+        acts = _load_from_cache(include_deleted, activity_type)
+    else:
+        # Merged: cache wins, CSV fills gaps
+        cache_acts = _load_from_cache(include_deleted, activity_type) if CACHE_DIR.exists() else []
+        cache_ids = {str(a.get("id")) for a in cache_acts}
 
-    # Merged: cache wins, CSV fills gaps
-    cache_acts = _load_from_cache(include_deleted, activity_type) if CACHE_DIR.exists() else []
-    cache_ids = {str(a.get("id")) for a in cache_acts}
+        csv_acts = _load_from_csv(activity_type)
+        csv_only = [a for a in csv_acts if str(a.get("id")) not in cache_ids]
 
-    csv_acts = _load_from_csv(activity_type)
-    csv_only = [a for a in csv_acts if str(a.get("id")) not in cache_ids]
+        acts = cache_acts + csv_only
+        acts.sort(key=lambda a: a.get("start_date_local", a.get("start_date", "")), reverse=True)
 
-    merged = cache_acts + csv_only
-    merged.sort(key=lambda a: a.get("start_date_local", a.get("start_date", "")), reverse=True)
-    return merged
+    # Stamp classification on anything that missed enrichment (CSV-only rows)
+    from enrichment import classify_activity
+    for a in acts:
+        if "_activity_class" not in a:
+            a["_activity_class"] = classify_activity(a)
+
+    if activity_type == "Run" and not include_bike_equiv:
+        acts = [a for a in acts if a["_activity_class"] in ("run", "treadmill_run")]
+    return acts
 
 
 def _load_from_cache(include_deleted: bool, activity_type: Optional[str]) -> list:
@@ -133,6 +148,13 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 moving_time = float(row[16]) if row[16] else 0
             except ValueError:
                 moving_time = 0
+
+            def _row_float(idx):
+                try:
+                    return float(row[idx]) if len(row) > idx and row[idx] else None
+                except ValueError:
+                    return None
+
             activities.append({
                 "id": row[0],
                 "name": row[2],
@@ -141,6 +163,15 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "distance": dist_km * 1000,
                 "moving_time": moving_time,
                 "average_heartrate": avg_hr,
+                # Needed by enrichment.classify_activity on CSV-only rows.
+                # NB: max_speed 0 serializes as "" in the CSV, which reads
+                # back as None here — classify treats both as "no max_speed".
+                "max_speed": _row_float(18),
+                "average_speed": _row_float(19),
+                "total_elevation_gain": _row_float(20),
+                # Needed by trends.py (drift/effort lenses) on CSV-only rows.
+                "max_heartrate": _row_float(7),
+                "relative_effort": _row_float(8),
             })
     return activities
 
@@ -171,7 +202,9 @@ def _moving_time_sec(a: dict) -> float:
 
 
 def _is_run(a: dict) -> bool:
-    return a.get("type") == "Run"
+    """Real runs only — bike-as-run and zero-distance entries never count."""
+    from enrichment import is_real_run
+    return a.get("type") == "Run" and is_real_run(a)
 
 
 def fmt_pace_min_per_mi(pace: float) -> str:
@@ -203,7 +236,8 @@ def eddington_number(activities: list, sport_type: str = "Run") -> int:
     Classic running Eddington number. E=12 means 12 runs of 12+ miles.
     Single elegant metric of training depth.
     """
-    runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")]
+    runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
+            and (sport_type != "Run" or _is_run(a))]
     if not runs:
         return 0
     distances_mi = sorted([_distance_mi(r) for r in runs], reverse=True)
@@ -220,7 +254,8 @@ def eddington_progress(activities: list, sport_type: str = "Run") -> dict:
     """How close to E+1 are we? Returns {current, next_n, runs_needed, runs_at_or_above}."""
     e = eddington_number(activities, sport_type)
     next_n = e + 1
-    runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")]
+    runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
+            and (sport_type != "Run" or _is_run(a))]
     runs_at_or_above = sum(1 for r in runs if _distance_mi(r) >= next_n)
     runs_needed = max(0, next_n - runs_at_or_above)
     return {

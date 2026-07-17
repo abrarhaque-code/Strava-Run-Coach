@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose a new metric, lens, or capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What training question would this answer?
+      description: >
+        This tool exists to drive training decisions. Start from the decision,
+        not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Ground rules
+      options:
+        - label: This can be built with the Python standard library only (hard rule — see CONTRIBUTING.md).
+          required: true
+        - label: If it's a sports-science model, I can point at a source for docs/METHODOLOGY.md.
