@@ -39,3 +39,13 @@ loop is clearer.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map and the data
 interface contract.
+
+## Claude packaging
+
+The repo ships agent skills in `.claude/skills/` and a Claude Code plugin
+manifest in `.claude-plugin/`. If you change either, keep
+`tests/test_packaging.py` green (it checks manifests parse, skills carry
+frontmatter descriptions, and skills only reference `coach.py` commands that
+exist) and run `claude plugin validate . --strict` locally before tagging a
+release. Skills must describe the real CLI — when you add or rename a
+sub-command, update the affected SKILL.md.
