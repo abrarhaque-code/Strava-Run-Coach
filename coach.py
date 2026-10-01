@@ -16,7 +16,9 @@ Usage:
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
     python3 coach.py note "..." [--until YYYY-MM-DD]  # log an adjustment; --until keeps it in force
     python3 coach.py trends     # long-horizon lenses: drift, efficiency, recovery
+    python3 coach.py status [--json]  # what the coach has and what it still needs
     python3 coach.py init       # first-run setup wizard
+    python3 coach.py init --from-mcp data/mcp/ [--goal-time H:MM:SS]  # config from your Strava profile, zones, history
 
 Examples:
     python3 coach.py scenario --entry 20,25,30
@@ -141,6 +143,7 @@ def main():
         "reconcile": lambda: _run_module("reconcile", extra),
         "trends": lambda: _run_module("trends"),
         "init": lambda: _run_module("wizard", extra),
+        "status": lambda: _run_module("status", extra),
     }
 
     if cmd == "note":
@@ -210,7 +213,8 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    routes[cmd]()
+    rc = routes[cmd]()
+    sys.exit(rc if isinstance(rc, int) else 0)
 
 
 if __name__ == "__main__":

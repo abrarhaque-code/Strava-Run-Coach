@@ -9,6 +9,8 @@ Run it:
     python3 wizard.py            (or: python3 coach.py init)
     python3 wizard.py --sample   # non-interactive: config default + sample
         # data, so `python3 coach.py` shows a full report on a fresh clone
+    python3 wizard.py --from-mcp data/mcp/ [--goal-time 3:45:00]   # non-interactive:
+        # config from your Strava profile, zones and history (onboarding.py)
     python3 wizard.py --from-mcp-zones zones.json   # non-interactive: calibrate
         # HR caps + threshold/tempo bands from a saved Strava-MCP
         # get_athlete_zones payload
@@ -310,6 +312,9 @@ def main() -> None:
     args = sys.argv[1:]
     if "--sample" in args:
         sys.exit(run_sample_bootstrap())
+    if "--from-mcp" in args:
+        import onboarding
+        sys.exit(onboarding.main(args))
     if "--from-mcp-zones" in args:
         idx = args.index("--from-mcp-zones")
         if idx + 1 >= len(args):
