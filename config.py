@@ -294,7 +294,7 @@ def trends_cfg() -> dict:
 
 def long_run_min_mi() -> float:
     """Shortest run that counts as a long run when no plan says otherwise."""
-    return float(trends_cfg().get("long_run_min_mi", 6))
+    return float(trends_cfg().get("long_run_min_mi", 7))
 
 
 def hard_hr_floor() -> int:

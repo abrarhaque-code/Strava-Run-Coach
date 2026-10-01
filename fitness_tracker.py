@@ -175,6 +175,22 @@ def strength_tss(a: dict = None) -> float:
 # bike-equiv "Run") and collapsed to the better record.
 CROSS_DEDUPE_SEC = 3 * 3600
 
+# CTL is a 42-day EWMA seeded at zero, so a cache holding less than one full
+# warm-up window reports a CTL that is still ramping up from nothing. That
+# understates CTL, drags TSB (= CTL - ATL) negative, and can flip a normal
+# build week into a false "OVERREACHING" call (a 21-day cache once read CTL
+# 13.4 / TSB -31.8 where the truth on full history was CTL 24.0 / TSB -15.2).
+# Any consumer quoting CTL/ATL/TSB must check history_days() first.
+CTL_WARMUP_DAYS = 42
+MIN_HISTORY_DAYS = 60
+
+# OVERREACHING needs this many consecutive days of TSB < -20. On a 20-month
+# history TSB dipped under -20 on 12 of 609 days, 11 of them the day after the
+# week's longest run or a race, 9 of them isolated single days. A 7-day EWMA
+# moves ~+19 on one 200-TSS day; that is the long run showing up in ATL, not
+# fatigue accumulating.
+OVERREACH_CONSECUTIVE_DAYS = 3
+
 
 def _dedupe_cross(cross: list) -> list:
     """Collapse same-day cross records whose start times overlap.
@@ -261,11 +277,12 @@ def load_sessions() -> list:
     return sessions
 
 
-def compute_loads_all(days_back: int = 90) -> list:
+def compute_loads_all(days_back: int = 90, sessions: list = None) -> list:
     """CTL/ATL/TSB over the aerobic-load stream (runs + cross-training + strength).
 
     Same 42d/7d EWMA as compute_loads, but the daily series is built from
     load_sessions() so cross-training and lifting contribute to fitness/fatigue.
+    Pass `sessions` to reuse an existing load.
     """
     today = date.today()
     end = today
@@ -273,7 +290,7 @@ def compute_loads_all(days_back: int = 90) -> list:
     warmup_start = start - timedelta(days=42)
 
     daily = defaultdict(float)
-    for s in load_sessions():
+    for s in (sessions if sessions is not None else load_sessions()):
         d = s["date"].date()
         if warmup_start <= d <= end:
             daily[d] += s["tss"]
@@ -344,8 +361,48 @@ def compute_loads(runs: list, days_back: int = 90) -> list:
     return series
 
 
-def classify_phase(ctl: float, atl: float, tsb: float, days_to_race: int) -> tuple:
-    """Return (phase, advice)."""
+def history_days(sessions: list) -> int:
+    """Days of loaded history, earliest session -> today (0 when empty).
+    The guard against quoting a CTL that has not finished warming up."""
+    dates = [s["date"] for s in sessions if s.get("date")]
+    if not dates:
+        return 0
+    return (datetime.now() - min(dates)).days
+
+
+def history_is_sufficient(sessions: list) -> bool:
+    """True when there is enough history to trust CTL/ATL/TSB."""
+    return history_days(sessions) >= MIN_HISTORY_DAYS
+
+
+def classify_phase(ctl: float, atl: float, tsb: float, days_to_race: int,
+                   hist_days: int = None, recent_tsb: list = None) -> tuple:
+    """Return (phase, advice).
+
+    With `hist_days` (from history_days()) under MIN_HISTORY_DAYS the phase is
+    UNRELIABLE rather than a guess: on a truncated cache CTL is still ramping
+    from zero, so every TSB-derived label would lean fatigued.
+
+    With `recent_tsb` (the last few days' TSB, oldest first, today last),
+    OVERREACHING requires OVERREACH_CONSECUTIVE_DAYS of TSB < -20. A single
+    day under -20 is what the morning after a long run always looks like and
+    reads BUILDING with the reason spelled out. Without recent_tsb the
+    single-value rule applies, as before.
+    """
+    if hist_days is not None and hist_days < MIN_HISTORY_DAYS:
+        return ("UNRELIABLE",
+                f"Only {hist_days}d of history loaded; CTL needs "
+                f"{CTL_WARMUP_DAYS}d of warm-up ({MIN_HISTORY_DAYS}d to be safe). "
+                f"CTL/TSB are understated: pull more history before drawing conclusions.")
+    if tsb < -20 and recent_tsb is not None:
+        window = list(recent_tsb)[-OVERREACH_CONSECUTIVE_DAYS:]
+        under = sum(1 for v in window if v < -20)
+        if len(window) < OVERREACH_CONSECUTIVE_DAYS or under < OVERREACH_CONSECUTIVE_DAYS:
+            return ("BUILDING",
+                    f"TSB {tsb:+.0f} today but under -20 on only {under} of the last "
+                    f"{OVERREACH_CONSECUTIVE_DAYS} days: a post-long-run ATL spike, not "
+                    f"accumulated fatigue. OVERREACHING needs {OVERREACH_CONSECUTIVE_DAYS} "
+                    f"consecutive days under -20.")
     if days_to_race is not None and 0 <= days_to_race <= 21 and tsb > 5:
         return "TAPERING", "Within 3 weeks of race. Freshness building correctly."
     if tsb > 15:
@@ -402,7 +459,8 @@ def current_status() -> dict:
     """Quick snapshot of current fitness state."""
     runs = load_runs()
     # Aerobic-load stream: runs + cross-training + strength feed CTL/ATL/TSB.
-    series = compute_loads_all(days_back=90)
+    sessions = load_sessions()
+    series = compute_loads_all(days_back=90, sessions=sessions)
     if not series:
         return {"error": "No data"}
 
@@ -411,7 +469,9 @@ def current_status() -> dict:
     atl = today_entry["atl"]
     tsb = today_entry["tsb"]
     days_to_race = (date.fromisoformat(config.active_race()["date"]) - date.today()).days
-    phase, advice = classify_phase(ctl, atl, tsb, days_to_race)
+    hist_days = history_days(sessions)
+    recent_tsb = [e["tsb"] for e in series[-OVERREACH_CONSECUTIVE_DAYS:]]
+    phase, advice = classify_phase(ctl, atl, tsb, days_to_race, hist_days, recent_tsb=recent_tsb)
 
     # Trends
     ctl_30d_ago = series[-30]["ctl"] if len(series) >= 30 else series[0]["ctl"]
@@ -429,8 +489,37 @@ def current_status() -> dict:
         "ctl_change_30d": ctl - ctl_30d_ago,
         "days_to_race": days_to_race,
         "days_since_run": days_since_run,
+        "history_days": hist_days,
+        "history_sufficient": hist_days >= MIN_HISTORY_DAYS,
         "series": series,
     }
+
+
+def tsb_context(run_date, run_tss: float = None, sessions: list = None) -> dict:
+    """The load picture for one run, for the review's load line.
+
+    -> {tss, tsb_before (form going into the day), tsb_after (the next
+    morning), ctl, history_days, history_sufficient}. `run_tss` defaults to
+    the TSS the aerobic stream recorded on that date.
+    """
+    if hasattr(run_date, "date"):
+        run_date = run_date.date()
+    if sessions is None:
+        sessions = load_sessions()
+    today = date.today()
+    days_back = max(90, (today - run_date).days + 2)
+    series = compute_loads_all(days_back=days_back, sessions=sessions)
+    by_date = {e["date"]: e for e in series}
+    on = by_date.get(run_date)
+    after = by_date.get(run_date + timedelta(days=1))
+    hist = history_days(sessions)
+    if on is None:
+        return {"tss": run_tss, "tsb_before": None, "tsb_after": None, "ctl": None,
+                "history_days": hist, "history_sufficient": hist >= MIN_HISTORY_DAYS}
+    tss = run_tss if run_tss is not None else on["tss"]
+    tsb_after = after["tsb"] if after is not None else on["ctl"] - on["atl"]
+    return {"tss": tss, "tsb_before": on["tsb"], "tsb_after": tsb_after, "ctl": on["ctl"],
+            "history_days": hist, "history_sufficient": hist >= MIN_HISTORY_DAYS}
 
 
 def print_fitness_report():
@@ -449,6 +538,12 @@ def print_fitness_report():
     print(f"  FITNESS TRACKER  |  {date.today().strftime('%a %b %d %Y')}")
     print("=" * 70)
     print()
+    if not s.get("history_sufficient", True):
+        print(f"  [!] DATA WARNING: only {s['history_days']}d of history loaded.")
+        print(f"      CTL is a {CTL_WARMUP_DAYS}d average and has not warmed up: the")
+        print("      numbers below understate CTL and overstate fatigue.")
+        print(f"      Pull {MIN_HISTORY_DAYS}+ days before acting on them.")
+        print()
     print(f"  CTL (fitness, 42d): {s['ctl']:6.1f}")
     print(f"  ATL (fatigue, 7d):  {s['atl']:6.1f}")
     print(f"  TSB (form):         {s['tsb']:+6.1f}")
