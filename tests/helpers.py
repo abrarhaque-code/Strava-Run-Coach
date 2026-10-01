@@ -183,29 +183,37 @@ def write_csv(path: Path, activities: list) -> Path:
 
 @contextlib.contextmanager
 def temp_activity_data(tmp_path: Path, cache_activities: list = (),
-                       csv_activities: list = ()):
-    """Point metrics + fitness_tracker at tmp cache/CSV for the block."""
+                       csv_activities: list = (), streams: dict = None):
+    """Point metrics + fitness_tracker at tmp cache/CSV/streams for the block.
+
+    `streams` is {activity_id: raw_streams_dict}, written to tmp/streams/<id>.json.
+    """
     import metrics
     import fitness_tracker
 
     cache_dir = Path(tmp_path) / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     csv_path = Path(tmp_path) / "activities.csv"
+    streams_dir = Path(tmp_path) / "streams"
 
     for a in cache_activities:
         write_cache_activity(cache_dir, a)
     write_csv(csv_path, list(csv_activities))
+    for aid, raw in (streams or {}).items():
+        streams_dir.mkdir(parents=True, exist_ok=True)
+        (streams_dir / f"{aid}.json").write_text(json.dumps(raw), encoding="utf-8")
 
-    saved = (metrics.CACHE_DIR, metrics.CSV_PATH,
+    saved = (metrics.CACHE_DIR, metrics.CSV_PATH, metrics.STREAMS_DIR,
              fitness_tracker.CACHE_DIR, fitness_tracker.CSV_PATH)
     metrics.CACHE_DIR = cache_dir
     metrics.CSV_PATH = csv_path
+    metrics.STREAMS_DIR = streams_dir
     fitness_tracker.CACHE_DIR = cache_dir
     fitness_tracker.CSV_PATH = csv_path
     try:
-        yield {"cache_dir": cache_dir, "csv_path": csv_path}
+        yield {"cache_dir": cache_dir, "csv_path": csv_path, "streams_dir": streams_dir}
     finally:
-        (metrics.CACHE_DIR, metrics.CSV_PATH,
+        (metrics.CACHE_DIR, metrics.CSV_PATH, metrics.STREAMS_DIR,
          fitness_tracker.CACHE_DIR, fitness_tracker.CSV_PATH) = saved
 
 

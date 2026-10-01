@@ -30,6 +30,7 @@ import config
 
 CACHE_DIR = config.ACTIVITIES_DIR
 CSV_PATH = config.CSV_PATH
+STREAMS_DIR = config.STREAMS_DIR
 
 # Standard distances in meters
 DIST_1MI = 1609.34
@@ -163,7 +164,11 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "start_date_local": dt.isoformat(),
                 "distance": dist_km * 1000,
                 "moving_time": moving_time,
+                "elapsed_time": _row_float(15),
                 "average_heartrate": avg_hr,
+                # CSV-only rows have no laps, streams or description; readers
+                # that need those can tell them apart.
+                "_from_csv": True,
                 # Needed by enrichment.classify_activity on CSV-only rows.
                 # NB: max_speed 0 serializes as "" in the CSV, which reads
                 # back as None here — classify treats both as "no max_speed".
@@ -175,6 +180,82 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "relative_effort": _row_float(8),
             })
     return activities
+
+
+# ---------------------------------------------------------------------------
+# Single-activity lookups and streams (the only readers of these paths)
+# ---------------------------------------------------------------------------
+
+def load_streams(activity_id) -> Optional[dict]:
+    """Raw streams for one activity, exactly as cached: REST shape
+    ({"heartrate": {"data": [...]}}) or MCP flat lists ({"heart_rate": [...]}).
+    Pass the result to intervals.normalize_streams. None when missing or
+    corrupt (never raises)."""
+    p = STREAMS_DIR / f"{activity_id}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def has_streams(activity_id) -> bool:
+    return (STREAMS_DIR / f"{activity_id}.json").exists()
+
+
+def activity_by_id(activity_id, source: str = "merged") -> Optional[dict]:
+    """One activity: the cache file first, then a scan of the chosen source."""
+    p = CACHE_DIR / f"{activity_id}.json"
+    if source in ("merged", "cache") and p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    if source == "cache":
+        return None
+    want = str(activity_id)
+    for a in load_activities(source=source):
+        if str(a.get("id")) == want:
+            return a
+    return None
+
+
+def _start_key(a: dict) -> str:
+    return a.get("start_date") or a.get("start_date_local") or ""
+
+
+def latest_run(source: str = "merged", runs: Optional[list] = None) -> Optional[dict]:
+    """Most recent real run, or None. Pass `runs` to reuse an existing load."""
+    if runs is None:
+        runs = load_activities(activity_type="Run", source=source)
+    runs = [r for r in runs if _is_run(r)]
+    return max(runs, key=_start_key) if runs else None
+
+
+def runs_since(days: float, ref: Optional[datetime] = None, runs: Optional[list] = None,
+               source: str = "merged") -> list:
+    """Real runs whose LOCAL start is within `days` of `ref` (default now),
+    newest first. Datetime precision on the naive local start, which is what
+    the daily brief's fatigue read uses."""
+    if ref is None:
+        ref = datetime.now()
+    cutoff = ref - timedelta(days=days)
+    if runs is None:
+        runs = load_activities(activity_type="Run", source=source)
+    out = []
+    for a in runs:
+        if not _is_run(a):
+            continue
+        iso = a.get("start_date_local") or ""
+        try:
+            dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            continue
+        if dt >= cutoff:
+            out.append(a)
+    out.sort(key=_start_key, reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------------------
