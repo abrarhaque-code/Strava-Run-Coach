@@ -44,6 +44,22 @@ def _is_run(a: dict) -> bool:
     return a.get("type") == "Run" and is_real_run(a)
 
 
+def _longest_run_day_mi(runs: list) -> float:
+    """Max same-calendar-day total run mileage.
+
+    A long run split across two activities (outdoor + a treadmill finish, a
+    watch that died) is one long run. A single-activity max undercounts those
+    days, so sum by date first.
+    """
+    daily: dict = {}
+    for r in runs:
+        d = _activity_date(r)
+        if d is None:
+            continue
+        daily[d] = daily.get(d, 0.0) + _activity_distance_mi(r)
+    return max(daily.values(), default=0.0)
+
+
 def _runs_in_week(runs: list, week_start: date) -> list:
     end = week_start + timedelta(days=7)
     return [r for r in runs
@@ -108,12 +124,14 @@ def weekly_compliance(week_num: int, today: Optional[date] = None,
         runs = load_activities(activity_type="Run")
     week_runs = _runs_in_week(runs, effective_start)
 
+    th = mp.compliance_thresholds()
     miles_actual = sum(_activity_distance_mi(r) for r in week_runs)
-    long_run_actual = max((_activity_distance_mi(r) for r in week_runs), default=0)
+    long_run_actual = _longest_run_day_mi(week_runs)
     target_mi = week["target_miles"]
     long_target = week["long_run_target"]
     miles_pct = miles_actual / target_mi if target_mi > 0 else 0
-    long_run_hit = (long_run_actual >= long_target * 0.9) if long_target > 0 else True
+    long_run_hit = ((long_run_actual >= long_target * th["long_run_hit_pct"])
+                    if long_target > 0 else True)
 
     # Cross-training credit (deduped rides + bike-equiv entries), reported
     # separately — never blended into run mileage.
@@ -125,7 +143,7 @@ def weekly_compliance(week_num: int, today: Optional[date] = None,
     if explicit:
         status = explicit
     elif effective_end <= today:
-        status = _auto_classify(miles_pct, long_run_hit)
+        status = _auto_classify(miles_pct, long_run_hit, th)
     elif effective_start <= today < effective_end:
         status = "in_progress"
     else:
@@ -164,12 +182,15 @@ def _cross_in_week(week_start: date) -> tuple:
         return 0, 0.0
 
 
-def _auto_classify(miles_pct: float, long_run_hit: bool) -> str:
-    """Heuristic: complete if hit 80%+ AND long run hit; missed if below 50%;
-    "partial" in between (an ENDED week that fell short but wasn't a miss)."""
-    if miles_pct >= 0.8 and long_run_hit:
+def _auto_classify(miles_pct: float, long_run_hit: bool, thresholds: dict = None) -> str:
+    """complete at repeat_below_pct+ of target AND long run hit; missed under
+    missed_below_pct; "partial" in between (an ENDED week that fell short but
+    was not a miss). Thresholds come from the plan's _meta
+    (marathon_plan.compliance_thresholds), never literals."""
+    th = thresholds or mp.compliance_thresholds()
+    if miles_pct >= th["repeat_below_pct"] and long_run_hit:
         return "complete"
-    if miles_pct < 0.5:
+    if miles_pct < th["missed_below_pct"]:
         return "missed"
     return "partial"
 
@@ -208,10 +229,16 @@ def mark_week_missed(week_num: int) -> None:
 # Metric resolution for decision points
 # ---------------------------------------------------------------------------
 
-def metric_value(metric_name: str, today: Optional[date] = None) -> Optional[float]:
-    """Resolve a decision-point metric name to a current value."""
+MP_PACE_TOLERANCE_MIN = 0.5      # a lap within 0:30 of goal pace counts as "at MP"
+
+
+def metric_value(metric_name: str, today: Optional[date] = None,
+                 crit: Optional[dict] = None) -> Optional[float]:
+    """Resolve a decision-point metric name to a current value. `crit` is the
+    criterion dict, for metrics that carry parameters (min_runs)."""
     if today is None:
         today = date.today()
+    crit = crit or {}
 
     if metric_name == "ctl":
         try:
@@ -227,16 +254,20 @@ def metric_value(metric_name: str, today: Optional[date] = None) -> Optional[flo
         recent = [r for r in runs
                   if _is_run(r) and (d := _activity_date(r)) is not None
                   and cutoff <= d <= today]
-        return max((_activity_distance_mi(r) for r in recent), default=0)
+        return _longest_run_day_mi(recent)
 
-    if metric_name == "weeks_at_4plus_of_4":
+    if metric_name in ("weeks_at_4plus_of_4", "weeks_with_min_runs_of_4"):
+        # How many of the last 4 weeks had at least `min_runs` runs (4 for the
+        # legacy name; `crit["min_runs"]` for the parameterised one, which the
+        # generator sets to days_per_week - 1).
         from metrics import load_activities
         runs = load_activities(activity_type="Run")
+        min_runs = 4 if metric_name == "weeks_at_4plus_of_4" else int(crit.get("min_runs", 4))
         count = 0
         for w in range(4):
             wk_start = today - timedelta(days=today.weekday()) - timedelta(weeks=w)
             wk_runs = _runs_in_week(runs, wk_start)
-            if len(wk_runs) >= 4:
+            if len(wk_runs) >= min_runs:
                 count += 1
         return count
 
@@ -294,34 +325,94 @@ def metric_value(metric_name: str, today: Optional[date] = None) -> Optional[flo
 
 
 def _mp_pace_limit() -> Optional[float]:
-    """Marathon-pace ceiling (min/mi) for lap verification: plan pace + 0:30.
-
-    Prefers the plan's own marathon_pace; falls back to the active race's
-    goal pace from config. No hardcoded athlete numbers.
-    """
+    """Marathon-pace ceiling (min/mi) for lap verification: goal pace + the
+    tolerance. The plan's own marathon_pace first, else the active race's goal
+    pace from config. No hardcoded athlete numbers."""
     try:
-        return float(mp.paces()["marathon_pace"]) + 0.5
+        return mp.goal_mp_pace() + MP_PACE_TOLERANCE_MIN
     except Exception:
         pass
     try:
         import config
-        return float(config.active_race()["goal_pace_min_per_mi"]) + 0.5
+        return float(config.active_race()["goal_pace_min_per_mi"]) + MP_PACE_TOLERANCE_MIN
     except Exception:
         return None
 
 
-def _longest_mp_stretch_mi(laps: list, pace_limit_min_mi: float) -> float:
-    """Longest run of consecutive laps at or under the MP pace limit, in miles."""
+def _lap_pace_and_dist(lap: dict) -> tuple:
+    """(moving pace min/mi, distance mi) for a lap; pace 0 when unusable."""
+    d_mi = (lap.get("distance", 0) or 0) / 1609.34
+    t_min = (lap.get("moving_time", 0) or 0) / 60
+    if d_mi < 0.2 or t_min <= 0:
+        return 0.0, d_mi
+    return t_min / d_mi, d_mi
+
+
+def _lap_at_mp(lap: dict, pace_limit_min_mi: float, hr_band: Optional[tuple] = None) -> bool:
+    """At or under the MP pace limit and, when a band is given, with lap HR inside it.
+    A lap without HR never satisfies the band test: an unmeasured effort cannot
+    be credited as controlled MP work."""
+    pace, _ = _lap_pace_and_dist(lap)
+    if pace <= 0 or pace > pace_limit_min_mi:
+        return False
+    if hr_band is None:
+        return True
+    hr = lap.get("average_heartrate")
+    return hr is not None and hr_band[0] <= hr <= hr_band[1]
+
+
+def _longest_mp_stretch_mi(laps: list, pace_limit_min_mi: float,
+                           hr_band: Optional[tuple] = None) -> float:
+    """Longest run of consecutive laps at or under the MP pace limit, in miles.
+    With `hr_band`, a lap also has to sit inside the band to extend the stretch:
+    MP miles run at threshold HR stop counting as MP."""
     best = cur = 0.0
     for lap in laps:
-        d_mi = (lap.get("distance", 0) or 0) / 1609.34
-        t_min = (lap.get("moving_time", 0) or 0) / 60
-        if d_mi >= 0.2 and t_min > 0 and (t_min / d_mi) <= pace_limit_min_mi:
-            cur += d_mi
+        if _lap_at_mp(lap, pace_limit_min_mi, hr_band):
+            cur += _lap_pace_and_dist(lap)[1]
             best = max(best, cur)
         else:
             cur = 0.0
     return best
+
+
+def mp_lap_summary(laps: list, pace_limit_min_mi: float, hr_band: tuple) -> dict:
+    """What the laps delivered against an MP prescription, pace and HR apart.
+    Pace alone can read "7 miles at MP" on a run where only one of them sat in
+    the HR band; this separates the two."""
+    lo, hi = hr_band
+    at_pace = []
+    for lap in laps:
+        if not _lap_at_mp(lap, pace_limit_min_mi):
+            continue
+        pace, d_mi = _lap_pace_and_dist(lap)
+        hr = lap.get("average_heartrate")
+        if hr is None:
+            hr_flag = "no_hr"
+        elif hr > hi:
+            hr_flag = "over"
+        elif hr < lo:
+            hr_flag = "under"
+        else:
+            hr_flag = "in_band"
+        at_pace.append({"idx": lap.get("lap_index"), "dist_mi": d_mi, "pace": pace,
+                        "avg_hr": hr, "hr": hr_flag})
+
+    def _sum(flag=None):
+        return sum(x["dist_mi"] for x in at_pace if flag is None or x["hr"] == flag)
+
+    return {
+        "pace_limit_min_mi": pace_limit_min_mi,
+        "hr_band": (lo, hi),
+        "at_pace_mi": _sum(),
+        "in_band_mi": _sum("in_band"),
+        "over_band_mi": _sum("over"),
+        "under_band_mi": _sum("under"),
+        "no_hr_mi": _sum("no_hr"),
+        "longest_at_pace_mi": _longest_mp_stretch_mi(laps, pace_limit_min_mi),
+        "longest_in_band_mi": _longest_mp_stretch_mi(laps, pace_limit_min_mi, hr_band),
+        "laps": at_pace,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +461,7 @@ def evaluate_decision_point(dp_id: str, today: Optional[date] = None) -> dict:
     optional_total = 0
 
     for crit in dp["criteria"]:
-        actual = metric_value(crit["metric"], today=today)
+        actual = metric_value(crit["metric"], today=today, crit=crit)
         target = crit["value"]
         op = crit["op"]
         is_optional = crit.get("optional", False)
@@ -451,6 +542,9 @@ def _cli():
     except Exception:
         pass
 
+    if not mp.has_plan():
+        print("No training plan yet. Generate one: python3 coach.py plan --from-data")
+        return
     print("PLAN COMPLIANCE")
     print("=" * 60)
     cw = mp.current_week()
@@ -463,7 +557,7 @@ def _cli():
               f"({'hit' if c['long_run_hit'] else 'missed'})")
         print(f"  Run count: {c['run_count']}")
     else:
-        print("Today is outside the marathon plan window.")
+        print("Today is outside the plan window.")
 
     print()
     print("DECISION POINTS")

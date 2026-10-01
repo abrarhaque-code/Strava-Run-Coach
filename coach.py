@@ -14,7 +14,7 @@ Usage:
     python3 coach.py ingest data/mcp/   # merge Strava MCP payloads (list/perf/streams) into the cache
     python3 coach.py analyze [data/mcp/]  # ingest, then the full report + base-build scenarios
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
-    python3 coach.py note "..." # log an in-the-moment adjustment to this week
+    python3 coach.py note "..." [--until YYYY-MM-DD]  # log an adjustment; --until keeps it in force
     python3 coach.py trends     # long-horizon lenses: drift, efficiency, recovery
     python3 coach.py init       # first-run setup wizard
 
@@ -144,11 +144,29 @@ def main():
     }
 
     if cmd == "note":
-        if not extra:
-            print('Usage: python3 coach.py note "what changed and why"')
+        until, words = None, []
+        i = 0
+        while i < len(extra):
+            a = extra[i]
+            if a == "--until" and i + 1 < len(extra):
+                until = extra[i + 1]
+                i += 2
+                continue
+            if a.startswith("--until="):
+                until = a.split("=", 1)[1]
+            else:
+                words.append(a)
+            i += 1
+        text = " ".join(words).strip()
+        if not text:
+            print('Usage: python3 coach.py note "what changed and why" [--until YYYY-MM-DD]')
             sys.exit(1)
         from reconcile import add_note
-        add_note(" ".join(extra))
+        try:
+            add_note(text, until=until)
+        except ValueError:
+            print(f"  [coach] --until needs a date like 2026-11-15, got {until!r}")
+            sys.exit(1)
         return
 
     if cmd == "sync":
