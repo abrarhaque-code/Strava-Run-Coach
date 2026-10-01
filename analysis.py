@@ -23,7 +23,7 @@ def load_activities(csv_path=None) -> Tuple[List[RunActivity], List[StrengthSess
         content = f.read()
 
     reader = csv.reader(io.StringIO(content))
-    header = next(reader)
+    next(reader)  # header row; columns are addressed by fixed index below
 
     # Duplicate column names exist. Use explicit indices:
     # 1=Date, 2=Name, 3=Type, 4=Description, 6=Distance(km), 7=MaxHR, 8=RelEffort
@@ -271,7 +271,7 @@ def print_summary(runs, strength):
           f"{polar['easy_pct']:.0f}% ({polar['easy_miles']:.1f} mi)")
     print(f"Hard (>=148 bpm): {polar['hard_count']}/{polar['total']} = "
           f"{polar['hard_pct']:.0f}% ({polar['hard_miles']:.1f} mi)")
-    print(f"Target: >= 75% easy")
+    print("Target: >= 75% easy")
 
     print(f"\n{'=' * 60}")
     print("PACE vs HR")

@@ -9,7 +9,6 @@ from unittest import mock
 
 import marathon_plan
 import plan_generator as pg
-import plan_layout as pl
 from tests.helpers import temp_config
 
 TODAY = date(2026, 6, 1)   # 22 weeks before the example config's City Marathon

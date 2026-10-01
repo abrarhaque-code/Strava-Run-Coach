@@ -340,7 +340,7 @@ def print_race_forecast():
             line += f" [{name}]"
         print(line)
     else:
-        print(f"  Source: insufficient recent data")
+        print("  Source: insufficient recent data")
     print()
     print(f"Goal VDOT ({race['goal_time']}): {goal_vdot:.1f}")
     print(f"Gap: {current_vdot - goal_vdot:+.1f} VDOT")

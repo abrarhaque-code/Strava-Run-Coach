@@ -764,8 +764,7 @@ def _assemble_data() -> dict:
     """Pull everything needed for the dashboard into a single dict."""
     from metrics import (load_activities, eddington_progress, current_streak,
                           longest_streak, weeks_with_3plus_runs,
-                          compute_best_efforts, year_summary, rolling_year_summary,
-                          fmt_pace_min_per_mi, fmt_time)
+                          compute_best_efforts, year_summary, rolling_year_summary)
 
     runs = load_activities(activity_type="Run")
 

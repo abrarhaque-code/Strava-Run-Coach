@@ -26,7 +26,6 @@ import json
 import math
 import sys
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import config
 from race_predictor import (
@@ -34,7 +33,6 @@ from race_predictor import (
     compute_vdot,
     predict_race_time,
     fmt_time,
-    fmt_pace_min_mi,
 )
 
 MARATHON_M = 42195.0

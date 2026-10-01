@@ -17,13 +17,11 @@ Usage:
 """
 
 import csv
-import io
 import json
 import math
 import statistics
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import date, datetime, timedelta
 from typing import Optional
 import config
 

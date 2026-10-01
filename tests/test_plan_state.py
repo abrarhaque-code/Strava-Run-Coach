@@ -5,7 +5,6 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-import marathon_plan
 from tests.helpers import make_plan, temp_plan
 
 

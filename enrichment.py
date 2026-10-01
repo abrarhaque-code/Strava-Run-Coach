@@ -15,7 +15,6 @@ Usage:
     # Now has _enriched_v, _workout_type, _pace_zone, _run_tss, etc.
 """
 
-from typing import Optional
 
 import config
 
@@ -445,7 +444,6 @@ def backfill_enrichment(cache_dir, verbose: bool = True, force: bool = False) ->
 if __name__ == "__main__":
     # CLI usage: enrich all cached activities
     import sys
-    from pathlib import Path
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:

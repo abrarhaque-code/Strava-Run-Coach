@@ -11,11 +11,9 @@ Usage:
 """
 
 import csv
-import io
 import json
 import sys
 from datetime import datetime, timedelta, date
-from pathlib import Path
 from collections import defaultdict
 
 import config
@@ -551,14 +549,14 @@ def print_fitness_report():
     print(f"  Phase: {s['phase']}")
     print(f"  -> {s['advice']}")
     print()
-    print(f"  Trend:")
+    print("  Trend:")
     print(f"    CTL 7d change:   {s['ctl_change_7d']:+.1f}")
     print(f"    CTL 30d change:  {s['ctl_change_30d']:+.1f}")
     print(f"    Days since run:  {s['days_since_run']}")
     print()
     race = config.active_race()
     print(f"  Race: {race['name']} in {s['days_to_race']} days")
-    print(f"        Target TSB on race day: +10 to +20")
+    print("        Target TSB on race day: +10 to +20")
     if s['days_to_race'] <= 21:
         if s['tsb'] < 0:
             print(f"        STATUS: Currently {s['tsb']:+.0f}. Need to lighten load.")

@@ -256,7 +256,7 @@ def _build_vevent(workout: PlannedWorkout) -> str:
     ]
 
     # Fold long lines per RFC 5545.
-    return "\r\n".join(_fold_line(l) for l in lines)
+    return "\r\n".join(_fold_line(ln) for ln in lines)
 
 
 # ---------------------------------------------------------------------------

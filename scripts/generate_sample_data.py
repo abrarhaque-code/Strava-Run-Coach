@@ -23,7 +23,6 @@ Stdlib only, plus the project's enrichment module.
 
 import csv
 import json
-import math
 import random
 import sys
 from datetime import date, datetime, timedelta

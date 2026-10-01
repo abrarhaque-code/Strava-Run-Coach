@@ -12,9 +12,7 @@ Public API:
     metric_value(metric_name) -> any  # for decision point criteria
 """
 
-import json
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 import marathon_plan as mp

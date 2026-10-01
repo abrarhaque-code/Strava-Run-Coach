@@ -24,8 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from enrichment import enrich, needs_enrichment, backfill_enrichment
-from strava_api import StravaAPI, RateLimitError, StravaAPIError
+from enrichment import enrich, backfill_enrichment
+from strava_api import StravaAPI, StravaAPIError
 import config
 
 

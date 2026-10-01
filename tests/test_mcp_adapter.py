@@ -1,14 +1,21 @@
 """Tests for the Strava MCP -> cache adapter, incl. cross-train classification."""
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
+import mcp_adapter
+import strava_sync
+from enrichment import enrich
 from mcp_adapter import (
     classify_type, convert, ingest_mcp_file, merge_performance,
     mcp_to_cache_activity, write_to_cache,
 )
+from tests.helpers import make_activity
 
 
 class TestClassify(unittest.TestCase):
@@ -177,22 +184,9 @@ class TestAdapterV2(unittest.TestCase):
             self.assertEqual(summary["csv_rows"], 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # ---------------------------------------------------------------------------
 # The merge layer: list + perf/<id>.json + streams/<id>.json in one command
 # ---------------------------------------------------------------------------
-
-import contextlib
-import io
-from datetime import date, timedelta
-
-import mcp_adapter
-import strava_sync
-from enrichment import enrich
-from tests.helpers import make_activity
 
 
 MINIMAL_ACTIVITY = {
@@ -533,3 +527,7 @@ class TestFetchPlan(unittest.TestCase):
 
     def test_history_days_empty(self):
         self.assertEqual(mcp_adapter.history_days([]), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
