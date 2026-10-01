@@ -16,10 +16,11 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+import config
 
 
-PLAN_PATH = Path(__file__).parent / "data" / "marathon_plan.json"
-STATE_PATH = Path(__file__).parent / "data" / "plan_state.json"
+PLAN_PATH = config.DATA_DIR / "marathon_plan.json"
+STATE_PATH = config.STATE_PATH
 
 
 # ---------------------------------------------------------------------------

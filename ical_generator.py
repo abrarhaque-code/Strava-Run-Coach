@@ -358,9 +358,14 @@ def generate_plan_ics(plan: TrainingPlan) -> str:
     return "\r\n".join(parts) + "\r\n"
 
 
-def write_plan_ics(plan: TrainingPlan, output_dir: str = "plan_output",
+def write_plan_ics(plan: TrainingPlan, output_dir: str = None,
                    filename: str = "training.ics") -> str:
-    """Write the combined plan feed to a single .ics file. Returns the path."""
+    """Write the combined plan feed to a single .ics file. Returns the path.
+
+    `output_dir` defaults to config.PLAN_OUTPUT_DIR (under the state home).
+    """
+    if output_dir is None:
+        output_dir = str(config.PLAN_OUTPUT_DIR)
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, filename)
     with open(path, "w", encoding="utf-8", newline="") as f:

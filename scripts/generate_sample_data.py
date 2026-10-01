@@ -35,10 +35,11 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import config  # noqa: E402
 import enrichment  # noqa: E402
 
-CSV_PATH = _ROOT / "activities.csv"
-CACHE_DIR = _ROOT / "data" / "strava_cache" / "activities"
+CSV_PATH = config.CSV_PATH
+CACHE_DIR = config.ACTIVITIES_DIR
 
 MI = 1609.34  # meters per mile
 SEED = 20260601

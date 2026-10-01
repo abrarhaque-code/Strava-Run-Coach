@@ -21,8 +21,8 @@ from collections import defaultdict
 import config
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
-CSV_PATH = Path(__file__).parent / "activities.csv"
+CACHE_DIR = config.ACTIVITIES_DIR
+CSV_PATH = config.CSV_PATH
 
 
 def _parse_csv_date(s: str):

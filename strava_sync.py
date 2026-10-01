@@ -26,14 +26,15 @@ from typing import Optional
 
 from enrichment import enrich, needs_enrichment, backfill_enrichment
 from strava_api import StravaAPI, RateLimitError, StravaAPIError
+import config
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache"
-ACTIVITIES_DIR = CACHE_DIR / "activities"
+CACHE_DIR = config.CACHE_DIR
+ACTIVITIES_DIR = config.ACTIVITIES_DIR
 LAST_SYNC_FILE = CACHE_DIR / "last_sync.json"
 SYNC_STATE_FILE = CACHE_DIR / "sync_state.json"
-LOCK_FILE = Path(__file__).parent / "data" / ".sync.lock"
-CSV_PATH = Path(__file__).parent / "activities.csv"
+LOCK_FILE = config.LOCK_FILE
+CSV_PATH = config.CSV_PATH
 
 # Lock is considered stale and reclaimable after this many seconds
 LOCK_STALE_SEC = 600  # 10 min

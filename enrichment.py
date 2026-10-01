@@ -360,6 +360,6 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    cache = Path(__file__).parent / "data" / "strava_cache" / "activities"
+    cache = config.ACTIVITIES_DIR
     n = backfill_enrichment(cache)
     print(f"Done. {n} activities enriched.")

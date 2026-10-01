@@ -18,9 +18,9 @@ import config
 from strava_api import StravaAPI, StravaAPIError
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache"
-ACT_DIR = CACHE_DIR / "activities"
-STREAMS_DIR = CACHE_DIR / "streams"
+CACHE_DIR = config.CACHE_DIR
+ACT_DIR = config.ACTIVITIES_DIR
+STREAMS_DIR = config.STREAMS_DIR
 
 
 def _make_api() -> StravaAPI:
@@ -79,11 +79,8 @@ def _latest_activity() -> dict:
 
 
 def _fmt_pace(pace_min_per_mi: float) -> str:
-    if pace_min_per_mi <= 0:
-        return "N/A"
-    m = int(pace_min_per_mi)
-    s = int((pace_min_per_mi - m) * 60)
-    return f"{m}:{s:02d}/mi"
+    import units
+    return units.fmt_pace(pace_min_per_mi)
 
 
 def classify_run(a: dict) -> str:

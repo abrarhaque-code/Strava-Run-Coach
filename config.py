@@ -19,15 +19,68 @@ Usage:
 """
 
 import json
+import os
 import sys
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
-_HERE = Path(__file__).parent
-CONFIG_PATH = _HERE / "config.json"
-EXAMPLE_PATH = _HERE / "config.example.json"
-STATE_PATH = _HERE / "data" / "plan_state.json"
+_CODE_DIR = Path(__file__).parent
+_HERE = _CODE_DIR  # legacy alias
+
+
+# ---------------------------------------------------------------------------
+# Where state lives (the "home" directory)
+# ---------------------------------------------------------------------------
+#
+# The code can run from a clone (state next to the code), from a Claude Code
+# plugin install (code under ~/.claude/plugins/..., which is replaced on
+# update, so state must live elsewhere), or anywhere else with
+# STRAVA_COACH_HOME pointing at a writable directory. Shipped files
+# (config.example.json) stay next to the code; everything personal or
+# generated lives under HOME.
+
+PLUGIN_ID = "strava-run-coach"
+
+
+def _plugin_data_home(code_dir: Path) -> Optional[Path]:
+    """If `code_dir` sits under a Claude plugins tree (.../.claude/plugins/...),
+    return that tree's persistent data dir for this plugin, else None.
+
+    Mirrors ${CLAUDE_PLUGIN_DATA} = ~/.claude/plugins/data/<plugin-id>/, which
+    survives plugin updates. Pure: no filesystem access.
+    """
+    parts = Path(code_dir).parts
+    for i in range(len(parts) - 1):
+        if parts[i] == ".claude" and parts[i + 1] == "plugins":
+            return Path(*parts[: i + 2]) / "data" / PLUGIN_ID
+    return None
+
+
+def home() -> Path:
+    """Resolve the state directory: $STRAVA_COACH_HOME, else the plugin data
+    dir when running from a plugin install, else the code directory."""
+    env = os.environ.get("STRAVA_COACH_HOME")
+    if env:
+        return Path(env).expanduser()
+    plug = _plugin_data_home(_CODE_DIR.resolve())
+    return plug if plug is not None else _CODE_DIR
+
+
+HOME = home()
+DATA_DIR = HOME / "data"
+CACHE_DIR = DATA_DIR / "strava_cache"
+ACTIVITIES_DIR = CACHE_DIR / "activities"
+STREAMS_DIR = CACHE_DIR / "streams"
+MCP_DIR = DATA_DIR / "mcp"
+CSV_PATH = HOME / "activities.csv"
+CONFIG_PATH = HOME / "config.json"
+STATE_PATH = DATA_DIR / "plan_state.json"
+PLAN_OUTPUT_DIR = HOME / "plan_output"
+ENV_PATH = HOME / ".env"
+LOCK_FILE = DATA_DIR / ".sync.lock"
+EXAMPLE_PATH = _CODE_DIR / "config.example.json"
 
 _REQUIRED_TOP = {"athlete", "pace_zones", "races", "theme"}
 _REQUIRED_RACE = {"id", "name", "date", "distance_mi", "goal_pace_min_per_mi"}
@@ -147,6 +200,16 @@ def threshold_pace() -> float:
     return float(athlete()["threshold_pace_min_per_mi"])
 
 
+def vo2_pct_max() -> float:
+    """Fraction of max HR above which effort reads as VO2max work (default 0.90)."""
+    return float(athlete().get("vo2_pct_max", 0.90))
+
+
+def hr_source() -> str:
+    """'wrist' (optical, the default) or 'chest' (strap). Wording only."""
+    return str(athlete().get("hr_source", "wrist"))
+
+
 # ---------------------------------------------------------------------------
 # Pace zones
 # ---------------------------------------------------------------------------
@@ -163,6 +226,38 @@ def tempo_hr_upper() -> int:
 def threshold_hr_upper() -> int:
     """Upper bound of the threshold HR band (boundary into vo2max)."""
     return int(pace_zones().get("threshold", {}).get("hr_range", [160, 170])[1])
+
+
+def race_pace_hr_range() -> list:
+    """[lo, hi] HR band for marathon/race-pace work. Falls back to the tempo
+    band's floor and the legacy `race_pace.hr_cap`."""
+    rp = pace_zones().get("race_pace", {}) or {}
+    rng = rp.get("hr_range")
+    if isinstance(rng, (list, tuple)) and len(rng) == 2:
+        return [int(rng[0]), int(rng[1])]
+    lo = int(pace_zones().get("tempo", {}).get("hr_range", [150, 160])[0])
+    hi = int(rp.get("hr_cap", max(lo, easy_hr_cap() + 14)))
+    return [lo, max(lo, hi)]
+
+
+def zone_edges() -> list:
+    """HR bands as (name, lo, hi) tuples, lo inclusive / hi exclusive, in
+    ascending order and guaranteed monotonic: recovery, easy, steady, mp,
+    threshold, vo2. Derived entirely from config."""
+    rec = recovery_hr_cap()
+    easy = max(easy_hr_cap(), rec)
+    mp_lo, mp_hi = race_pace_hr_range()
+    mp_lo = max(mp_lo, easy)
+    mp_hi = max(mp_hi, mp_lo)
+    vo2 = max(int(round(max_hr() * vo2_pct_max())), mp_hi)
+    return [
+        ("recovery", 0, rec),
+        ("easy", rec, easy),
+        ("steady", easy, mp_lo),
+        ("mp", mp_lo, mp_hi),
+        ("threshold", mp_hi, vo2),
+        ("vo2", vo2, 999),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +286,42 @@ def scenario_cfg() -> dict:
 
 def report_cfg() -> dict:
     return load_config().get("report", {})
+
+
+def trends_cfg() -> dict:
+    return load_config().get("trends", {}) or {}
+
+
+def long_run_min_mi() -> float:
+    """Shortest run that counts as a long run when no plan says otherwise."""
+    return float(trends_cfg().get("long_run_min_mi", 6))
+
+
+def hard_hr_floor() -> int:
+    """Average HR at or above which a run reads as a hard effort."""
+    return int(trends_cfg().get("hard_hr_floor", 155))
+
+
+PLAN_DEFAULTS = {
+    "days_per_week": 5,
+    "long_run_day": "sat",
+    "quality_day": "wed",
+    "rest_days": [],
+    "lift_days": [],
+    "quality": "full",          # none | strides | tempo | full
+    "max_long_run_mi": None,
+    "long_run_time_cap_min": None,
+    "block_weeks": None,        # None -> distance preset
+    "taper_weeks": None,
+    "peak_multiplier": None,
+}
+
+
+def plan_cfg() -> dict:
+    """Plan-generation preferences (the `plan` block) over PLAN_DEFAULTS."""
+    merged = dict(PLAN_DEFAULTS)
+    merged.update(load_config().get("plan", {}) or {})
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -259,10 +390,28 @@ def active_race_id(today: date = None) -> str:
     return active_race(today)["id"]
 
 
+def plan_path(race: dict) -> Path:
+    """Where this race's plan JSON lives.
+
+    An explicit `plan` ending in .json is honored (relative to HOME); otherwise
+    the convention is data/<race_id>.generated.json, which `coach.py plan`
+    writes and .gitignore already excludes.
+    """
+    race = race or {}
+    plan = race.get("plan", "")
+    if isinstance(plan, str) and plan.endswith(".json"):
+        p = Path(plan).expanduser()
+        return p if p.is_absolute() else HOME / p
+    rid = race.get("id") or "plan"
+    return DATA_DIR / f"{rid}.generated.json"
+
+
 def has_structured_plan(race: dict) -> bool:
-    """True if the race points at a JSON plan file (vs a generated short plan)."""
-    plan = (race or {}).get("plan", "")
-    return isinstance(plan, str) and plan.endswith(".json")
+    """True if a plan JSON exists for this race (explicit or generated)."""
+    try:
+        return plan_path(race).exists()
+    except (TypeError, ValueError, OSError):
+        return False
 
 
 # ---------------------------------------------------------------------------

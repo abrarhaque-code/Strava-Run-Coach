@@ -26,6 +26,8 @@ import sys
 import subprocess
 from pathlib import Path
 
+import config
+
 
 SCRIPT_DIR = Path(__file__).parent
 
@@ -55,7 +57,6 @@ def _auto_reconcile():
     degrades to a one-line notice otherwise so sync/analyze never break.
     """
     try:
-        import config
         if not config.has_structured_plan(config.active_race()):
             return
         from reconcile import reconcile
@@ -65,8 +66,8 @@ def _auto_reconcile():
 
 
 def _has_any_data() -> bool:
-    csv_path = SCRIPT_DIR / "activities.csv"
-    cache = SCRIPT_DIR / "data" / "strava_cache" / "activities"
+    csv_path = config.CSV_PATH
+    cache = config.ACTIVITIES_DIR
     return csv_path.exists() or (cache.exists() and any(cache.glob("*.json")))
 
 
@@ -104,7 +105,6 @@ def full_report(save_brief: bool = False):
     _run_module("weekly_check")
 
     # Off by default: a pep talk reads differently on someone else's terminal.
-    import config
     if config.report_cfg().get("motivational_footer", False):
         print()
         print("=" * 70)

@@ -426,7 +426,7 @@ def main():
     plan = generate_half_plan(race)
     md = generate_plan_markdown(plan)
 
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plan_output")
+    output_dir = str(config.PLAN_OUTPUT_DIR)
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{race['id']}.md")
     with open(output_path, "w", encoding="utf-8") as f:

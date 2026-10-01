@@ -25,7 +25,7 @@ import config
 import scenario
 from models import PlannedWorkout, PlannedWeek, TrainingPlan, PaceZones
 
-OUT_PATH = Path(__file__).parent / "data" / "marathon_plan.generated.json"
+OUT_PATH = config.DATA_DIR / "marathon_plan.generated.json"
 
 _PHASE_META = {
     "base":  {"name": "Base Building", "color": "#A9BCE6"},
@@ -42,11 +42,8 @@ _DAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 # ---------------------------------------------------------------------------
 
 def _fmt_pace(p: float) -> str:
-    m = int(p)
-    s = int(round((p - m) * 60))
-    if s == 60:
-        m, s = m + 1, 0
-    return f"{m}:{s:02d}"
+    import units
+    return units.fmt_pace(p, label=False)
 
 
 def _paces_block(race: dict) -> dict:
@@ -330,7 +327,7 @@ def main(argv=None):
     if want_ics:
         from ical_generator import write_plan_ics
         tp = to_training_plan(plan)
-        write_plan_ics(tp, output_dir="plan_output")
+        write_plan_ics(tp, output_dir=str(config.PLAN_OUTPUT_DIR))
         print("  Subscribe to plan_output/training.ics in Outlook (re-generate to update).")
     return 0
 

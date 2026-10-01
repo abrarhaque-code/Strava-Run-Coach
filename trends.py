@@ -290,13 +290,8 @@ def effort_efficiency(runs: list, max_pace: float = 9.5, top_n: int = 5) -> dict
 # ---------------------------------------------------------------------------
 
 def _fmt_pace(p: float) -> str:
-    if not p or p <= 0:
-        return "N/A"
-    m = int(p)
-    s = int(round((p - m) * 60))
-    if s == 60:
-        m, s = m + 1, 0
-    return f"{m}:{s:02d}"
+    import units
+    return units.fmt_pace(p, label=False)
 
 
 def print_trends(runs: list = None) -> None:

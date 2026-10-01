@@ -39,7 +39,7 @@ from pathlib import Path
 import config
 
 
-OUT_DIR = Path(__file__).parent / "plan_output"
+OUT_DIR = config.PLAN_OUTPUT_DIR
 OUT_FILE = OUT_DIR / "dashboard.html"
 
 # r=46 circle circumference, used for the probability ring stroke-dasharray.
@@ -58,8 +58,9 @@ def _fmt_mmss(total_seconds: float) -> str:
 
 
 def _pace_from_min(min_per_mi: float) -> str:
-    """Decimal minutes-per-mile -> 'M:SS'."""
-    return _fmt_mmss(min_per_mi * 60)
+    """Decimal minutes-per-mile -> 'M:SS' in the user's unit (no label)."""
+    import units
+    return units.fmt_pace(min_per_mi, label=False)
 
 
 def _short_date(iso_or_date) -> str:

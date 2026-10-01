@@ -25,10 +25,11 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+import config
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
-CSV_PATH = Path(__file__).parent / "activities.csv"
+CACHE_DIR = config.ACTIVITIES_DIR
+CSV_PATH = config.CSV_PATH
 
 # Standard distances in meters
 DIST_1MI = 1609.34
@@ -208,11 +209,9 @@ def _is_run(a: dict) -> bool:
 
 
 def fmt_pace_min_per_mi(pace: float) -> str:
-    if pace <= 0:
-        return "N/A"
-    m = int(pace)
-    s = int(round((pace - m) * 60))
-    return f"{m}:{s:02d}"
+    """M:SS in the user's unit, no label (see units.fmt_pace)."""
+    import units
+    return units.fmt_pace(pace, label=False)
 
 
 def fmt_time(seconds: float) -> str:

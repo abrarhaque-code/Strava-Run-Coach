@@ -23,11 +23,12 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+import config
 
 
 BASE_URL = "https://www.strava.com/api/v3"
 TOKEN_URL = "https://www.strava.com/oauth/token"
-ENV_PATH = Path(__file__).parent / ".env"
+ENV_PATH = config.ENV_PATH
 
 # Refresh access token if it expires within this many seconds.
 REFRESH_THRESHOLD_SEC = 300  # 5 min buffer

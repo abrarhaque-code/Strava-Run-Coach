@@ -18,9 +18,11 @@ import json
 import sys
 from pathlib import Path
 
+import config
+
 _HERE = Path(__file__).resolve().parent
-EXAMPLE_PATH = _HERE / "config.example.json"
-CONFIG_PATH = _HERE / "config.json"
+EXAMPLE_PATH = config.EXAMPLE_PATH
+CONFIG_PATH = config.CONFIG_PATH
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -141,12 +143,8 @@ def run_wizard() -> dict:
 
 
 def _fmt_pace(minutes: float) -> str:
-    m = int(minutes)
-    s = int(round((minutes - m) * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}"
+    import units
+    return units.fmt_pace(minutes, label=False)
 
 
 # ---------------------------------------------------------------------------

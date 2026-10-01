@@ -38,7 +38,7 @@ from race_predictor import (
 )
 
 MARATHON_M = 42195.0
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
+CACHE_DIR = config.ACTIVITIES_DIR
 
 DEFAULTS = {
     "block_weeks": 16,

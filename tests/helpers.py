@@ -207,3 +207,39 @@ def temp_activity_data(tmp_path: Path, cache_activities: list = (),
     finally:
         (metrics.CACHE_DIR, metrics.CSV_PATH,
          fitness_tracker.CACHE_DIR, fitness_tracker.CSV_PATH) = saved
+
+
+# ---------------------------------------------------------------------------
+# Config fixtures
+# ---------------------------------------------------------------------------
+
+@contextlib.contextmanager
+def temp_config(tmp_path: Path, overrides: dict = None):
+    """Write a config.json (example + deep-merged overrides) under tmp_path,
+    point `config.CONFIG_PATH` at it for the block, and reload on both ends.
+
+    Modules that cache config-derived constants at import (units, zones) read
+    through `config.load_config()` at call time, so a reload is enough.
+    """
+    import copy
+    import config
+
+    def _merge(dst, patch):
+        for k, v in (patch or {}).items():
+            if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                _merge(dst[k], v)
+            else:
+                dst[k] = v
+
+    cfg = copy.deepcopy(json.loads(config.EXAMPLE_PATH.read_text(encoding="utf-8")))
+    _merge(cfg, overrides or {})
+    path = Path(tmp_path) / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    old = config.CONFIG_PATH
+    config.CONFIG_PATH = path
+    config.reload()
+    try:
+        yield cfg
+    finally:
+        config.CONFIG_PATH = old
+        config.reload()

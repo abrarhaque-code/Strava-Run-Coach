@@ -36,8 +36,9 @@ Stdlib only.
 import json
 import sys
 from pathlib import Path
+import config
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
+CACHE_DIR = config.ACTIVITIES_DIR
 
 # sport_type values that count as running
 _RUN_SPORTS = {"Run", "TrailRun", "VirtualRun"}

@@ -17,12 +17,7 @@ import config
 
 # ---- Constants ----
 HALF_M = 21097.5
-ACTIVITIES_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "data",
-    "strava_cache",
-    "activities",
-)
+ACTIVITIES_DIR = str(config.ACTIVITIES_DIR)
 MI_PER_M = 1 / 1609.34
 
 
@@ -197,13 +192,8 @@ def current_fitness_vdot(activities: list, today: datetime = None) -> tuple:
 def _pace_str(time_sec: float, distance_m: float) -> str:
     if not distance_m:
         return ""
-    pace_sec = time_sec / (distance_m / 1609.34)
-    m = int(pace_sec // 60)
-    s = int(round(pace_sec - m * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}"
+    import units
+    return units.fmt_pace(sec_per_m=time_sec / distance_m, label=False)
 
 
 # ---- Trend & volume ----
@@ -275,24 +265,15 @@ def fmt_time(sec: int) -> str:
 
 
 def fmt_pace_per_mi(total_sec: int, distance_m: float) -> str:
-    miles = distance_m * MI_PER_M
-    sec_per_mi = total_sec / miles
-    m = int(sec_per_mi // 60)
-    s = int(round(sec_per_mi - m * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}/mi"
+    """Pace with its unit label ('9:05/mi' or '5:39/km')."""
+    import units
+    return units.fmt_pace(sec_per_m=total_sec / distance_m)
 
 
 def fmt_pace_min_mi(pace_min_mi: float) -> str:
-    """Format a pace given in minutes-per-mile (float) as M:SS."""
-    m = int(pace_min_mi)
-    s = int(round((pace_min_mi - m) * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}"
+    """Format a pace given in minutes-per-mile (float) as M:SS in the user's unit."""
+    import units
+    return units.fmt_pace(pace_min_mi, label=False)
 
 
 def arrow(recent_val, prior_val, higher_is_better=True):

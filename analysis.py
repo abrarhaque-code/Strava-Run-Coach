@@ -12,8 +12,13 @@ from enrichment import classify_activity
 from models import RunActivity, StrengthSession, WeekSummary, PaceZones
 
 
-def load_activities(csv_path: str = 'activities.csv') -> Tuple[List[RunActivity], List[StrengthSession]]:
-    """Parse activities.csv into RunActivity and StrengthSession lists."""
+def load_activities(csv_path=None) -> Tuple[List[RunActivity], List[StrengthSession]]:
+    """Parse activities.csv into RunActivity and StrengthSession lists.
+
+    Defaults to config.CSV_PATH (under the state home), not the CWD.
+    """
+    if csv_path is None:
+        csv_path = config.CSV_PATH
     with open(csv_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -226,11 +231,9 @@ def monthly_mileage(runs: List[RunActivity], months_back: int = 12) -> dict:
 
 
 def fmt_pace(p: float) -> str:
-    if p <= 0:
-        return "N/A"
-    m = int(p)
-    s = int((p - m) * 60)
-    return f"{m}:{s:02d}"
+    """M:SS in the user's unit, no label (see units.fmt_pace)."""
+    import units
+    return units.fmt_pace(p, label=False)
 
 
 # --- CLI output ---

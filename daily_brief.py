@@ -16,7 +16,7 @@ from pathlib import Path
 import config
 
 
-BRIEF_PATH = Path(__file__).parent / "plan_output" / "brief.md"
+BRIEF_PATH = config.PLAN_OUTPUT_DIR / "brief.md"
 
 
 def _today_workout_from_plan():
@@ -89,7 +89,7 @@ def _today_workout_from_plan():
 
 def _last_3_days_load() -> dict:
     """Look at last 3 days of training to gauge fatigue."""
-    cache = Path(__file__).parent / "data" / "strava_cache" / "activities"
+    cache = config.ACTIVITIES_DIR
     if not cache.exists():
         return {"recent": [], "total_mi": 0, "total_min": 0, "avg_hr": 0}
 
