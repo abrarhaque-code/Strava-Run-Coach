@@ -22,7 +22,7 @@ from models import PlannedWorkout, PlannedWeek, TrainingPlan
 # Constants
 # ---------------------------------------------------------------------------
 
-PRODID = "-//Training Planner//EN"
+PRODID = "-//strava-run-coach//EN"
 
 # VTIMEZONE block for America/New_York (EST/EDT).  Covers the standard US
 # transition rules so Outlook and Google Calendar interpret times correctly.
@@ -69,7 +69,7 @@ def _start_times() -> dict:
     cal = config.calendar_cfg()
     return {
         "weekday_run": _parse_hhmm(cal.get("weekday_run_time"), (20, 30)),
-        "saturday_long": _parse_hhmm(cal.get("saturday_long_time"), (9, 0)),
+        "saturday_long": _parse_hhmm(cal.get("long_run_time") or cal.get("saturday_long_time"), (9, 0)),
         "lift": _parse_hhmm(cal.get("lift_time"), (20, 30)),
     }
 
@@ -145,7 +145,7 @@ def _estimate_duration_min(workout: PlannedWorkout) -> int:
     if workout.distance_mi <= 0:
         return 30  # minimal default for rest / unknown
 
-    pace = _parse_pace_to_min(workout.target_pace)
+    pace = getattr(workout, "pace_min_per_mi", None) or _parse_pace_to_min(workout.target_pace)
     if pace is None:
         pace = 10.0  # sensible default
 
@@ -162,8 +162,8 @@ def _start_time_for(workout: PlannedWorkout) -> tuple[int, int]:
     if workout.workout_type == "lift":
         return start_times["lift"]
 
-    # Saturday long runs
-    if workout.day.weekday() == 5 and workout.workout_type == "long":
+    # Long runs (and race day) take the long-run slot whatever the weekday.
+    if workout.workout_type in ("long", "race"):
         return start_times["saturday_long"]
 
     # All other runs default to the weekday-run time slot.
@@ -198,7 +198,7 @@ def _build_description(workout: PlannedWorkout) -> str:
 def _uid(workout: PlannedWorkout) -> str:
     """Generate a deterministic UID for a workout event."""
     day_str = workout.day.isoformat()
-    return f"{day_str}-{workout.workout_type}@training-planner"
+    return f"{day_str}-{workout.workout_type}@strava-run-coach"
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +408,9 @@ def generate_all_ics(plan: TrainingPlan, output_dir: str = "plan_output") -> lis
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from planner import generate_half_plan
+    import marathon_plan
+    from plan_generator import to_training_plan
 
-    plan = generate_half_plan()
-    generate_all_ics(plan, output_dir="plan_output")
+    if not marathon_plan.has_plan():
+        raise SystemExit("No training plan yet. Generate one: python3 coach.py plan --from-data --ics")
+    generate_all_ics(to_training_plan(marathon_plan.load_plan()), output_dir=str(config.PLAN_OUTPUT_DIR))

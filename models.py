@@ -108,6 +108,7 @@ class PlannedWorkout:
     hr_cap: Optional[int] = None
     is_outdoor: bool = True
     notes: str = ""
+    pace_min_per_mi: Optional[float] = None   # numeric pace for duration estimates
 
 
 @dataclass

@@ -10,7 +10,7 @@ Usage:
     python3 coach.py dashboard  # regenerate the HTML dashboard
     python3 coach.py sync       # sync from Strava + full report
     python3 coach.py scenario   # base-build scenarios (20/25/30 -> peak -> marathon)
-    python3 coach.py plan       # generate a parametric 16-week marathon plan
+    python3 coach.py plan [--from-data|--entry N] [--days 4 --long-day sun --quality strides] [--ics]
     python3 coach.py ingest data/mcp/   # merge Strava MCP payloads (list/perf/streams) into the cache
     python3 coach.py analyze [data/mcp/]  # ingest, then the full report + base-build scenarios
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json

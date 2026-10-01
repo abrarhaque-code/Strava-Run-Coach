@@ -642,62 +642,7 @@ def _plan_progress_col(data: dict, active_info: dict, today: date) -> str:
       </div>"""
         return inner
 
-    # --- Generated short plan (no structured JSON) ---
-    try:
-        import planner
-        plan = planner.generate_half_plan()
-        weeks_list = list(getattr(plan, "weeks", None) or [])
-        if not weeks_list:
-            return ""
-        n_weeks = len(weeks_list)
-
-        cur_num = 0
-        for w in weeks_list:
-            ws = getattr(w, "week_start", None)
-            if ws and ws <= today < ws + timedelta(days=7):
-                cur_num = getattr(w, "week_num", 0)
-                break
-        if not cur_num:
-            # Pick nearest by week_start if today outside all windows.
-            past = [w for w in weeks_list if getattr(w, "week_start", today) <= today]
-            cur_num = getattr(past[-1], "week_num", 0) if past else 0
-
-        # Group contiguous weeks into phase bars.
-        phase_groups = []  # (phase, start_num, end_num)
-        for w in weeks_list:
-            ph = getattr(w, "phase", "") or ""
-            wn = getattr(w, "week_num", 0)
-            if phase_groups and phase_groups[-1][0] == ph:
-                phase_groups[-1] = (ph, phase_groups[-1][1], wn)
-            else:
-                phase_groups.append((ph, wn, wn))
-
-        spans = [max(1, e - s + 1) for _, s, e in phase_groups]
-        grid_cols = " ".join(f"{x}fr" for x in spans) or "1fr"
-        cells = []
-        for ph, s, e in phase_groups:
-            if cur_num and s <= cur_num <= e:
-                klass = "phase cur"
-            elif cur_num and e < cur_num:
-                klass = "phase done"
-            else:
-                klass = "phase"
-            wk_txt = f"Wk {s}" if s == e else f"Wk {s}&ndash;{e}"
-            cells.append(
-                f'<div class="{klass}"><div class="ph-bar"></div>'
-                f'<div class="ph-lbl">{ph.title()}</div>'
-                f'<div class="ph-wk">{wk_txt}</div></div>'
-            )
-
-        return f"""      <div class="eyebrow"><span class="idx">06</span><span class="lbl">Plan Progress</span><span class="rt">{n_weeks}-week block</span></div>
-      <div class="plan-top">
-        <div class="pt-wk">Week {cur_num} <small>of {n_weeks}</small></div>
-      </div>
-      <div class="phases" style="grid-template-columns:{grid_cols}">
-        {"".join(cells)}
-      </div>"""
-    except Exception:
-        return ""
+    return ""
 
 
 def _best_efforts_plan_split(data: dict, active_info: dict, today: date) -> str:

@@ -271,6 +271,16 @@ def run_sample_bootstrap() -> int:
     except Exception as e:
         print(f"Could not generate sample data: {e}")
         return 1
+    # A plan to go with the data, so week/brief/dashboard show the whole surface.
+    try:
+        import config as _config
+        if not _config.has_structured_plan(_config.active_race()):
+            import plan_generator
+            path, info = plan_generator.generate_from_data()
+            print(f"Generated a sample plan -> {path.name} "
+                  f"(entry {info['entry_mi']:.0f} mi/wk from the sample history)")
+    except Exception as e:
+        print(f"Could not generate a plan from the sample data: {e}")
     return 0  # the generator already prints the "Next: coach.py" pointer
 
 

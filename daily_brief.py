@@ -25,12 +25,6 @@ def _today_workout_from_plan():
     race = config.active_race(today)
 
     if not config.has_structured_plan(race):
-        from planner import generate_half_plan
-        plan = generate_half_plan(race)
-        for week in plan.weeks:
-            for w in week.workouts:
-                if w.day == today:
-                    return w, week
         return None, None
 
     # Structured (marathon) plan active: synthesize a workout from current week
@@ -213,7 +207,7 @@ def build_brief() -> str:
     else:
         out.append(f"  No workout scheduled for {today}.")
         out.append(f"  Today may be outside the current plan window.")
-        out.append(f"  Re-run python3 planner.py to regenerate the short-race plan.")
+        out.append("  No plan yet: python3 coach.py plan --from-data")
     out.append("")
     out.append("-" * 60)
     out.append("  LAST 3 DAYS")

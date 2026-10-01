@@ -58,7 +58,6 @@
       "goal_time": "3:45:00",
       "goal_pace_min_per_mi": 8.583,
       "vdot_required": 40.0,
-      "plan": "data/marathon_plan.json",
       "start_time_local": "08:30"
     },
     {
@@ -69,7 +68,6 @@
       "goal_time": "1:59:59",
       "goal_pace_min_per_mi": 9.15,
       "vdot_required": 36.5,
-      "plan": "generated_half",
       "start_time_local": "08:00"
     }
   ],
@@ -113,7 +111,19 @@
     "weekday_run_time": "20:30",
     "saturday_long_time": "09:00",
     "lift_time": "20:30",
-    "reminder_minutes": 30
+    "reminder_minutes": 30,
+    "long_run_time": "09:00"
+  },
+  "plan": {
+    "_comment": "How `coach.py plan` lays out your week. Flags override these for one run. quality: none | strides | tempo | full (none/strides for injury or return-to-run).",
+    "days_per_week": 5,
+    "long_run_day": "sat",
+    "quality_day": "wed",
+    "rest_days": [],
+    "lift_days": [],
+    "quality": "full",
+    "max_long_run_mi": null,
+    "long_run_time_cap_min": null
   },
   "crosstrain": {
     "bike_min_per_mi": 10.0,
