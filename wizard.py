@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 import config
+import units
 
 _HERE = Path(__file__).resolve().parent
 EXAMPLE_PATH = config.EXAMPLE_PATH
@@ -126,10 +127,11 @@ def run_wizard() -> dict:
     race = cfg["races"][0]
     race["name"] = _ask("  Race name", race.get("name", "Goal Race"))
     race["date"] = _ask("  Race date (YYYY-MM-DD)", race.get("date", ""))
-    race["distance_mi"] = _ask_float(
-        "  Distance in miles (13.1 half, 26.2 full)",
-        race.get("distance_mi", 13.1),
-    )
+    u = cfg["athlete"].get("units", "mi")
+    hint = "21.1 half, 42.2 full" if u == "km" else "13.1 half, 26.2 full"
+    default_dist = race.get("distance_mi", 13.1) * (units.KM_PER_MI if u == "km" else 1.0)
+    race["distance_mi"] = round(units.to_mi(
+        _ask_float(f"  Distance in {u} ({hint})", round(default_dist, 1)), u), 2)
     goal_time = _ask("  Goal finish time (H:MM:SS)",
                      race.get("goal_time", "1:59:59"))
     race["goal_time"] = goal_time
@@ -143,7 +145,6 @@ def run_wizard() -> dict:
 
 
 def _fmt_pace(minutes: float) -> str:
-    import units
     return units.fmt_pace(minutes, label=False)
 
 
@@ -278,7 +279,8 @@ def run_sample_bootstrap() -> int:
             import plan_generator
             path, info = plan_generator.generate_from_data()
             print(f"Generated a sample plan -> {path.name} "
-                  f"(entry {info['entry_mi']:.0f} mi/wk from the sample history)")
+                  f"(entry {units.mi_to_user(info['entry_mi']):.0f} {units.volume_label()} "
+                  "from the sample history)")
     except Exception as e:
         print(f"Could not generate a plan from the sample data: {e}")
     return 0  # the generator already prints the "Next: coach.py" pointer

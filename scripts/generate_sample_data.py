@@ -460,7 +460,7 @@ def main() -> None:
     print(f"  Date range:        {start.isoformat()} -> {end.isoformat()}")
     print(f"  Activities:        {len(activities)} "
           f"({len(runs)} runs, {len(lifts)} lifts)")
-    print(f"  Total run mileage: {total_mi:.1f} mi")
+    print(f"  Total run volume: {total_mi:.1f} mi")
     print(f"  Runs w/ splits:    {n_be}")
     print(f"  CSV rows written:  {n_csv}  ->  {CSV_PATH.name}")
     print(f"  Cache JSON files:  {n_cache}  ->  "

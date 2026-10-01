@@ -37,6 +37,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import config
+import units
 
 
 OUT_DIR = config.PLAN_OUTPUT_DIR
@@ -347,18 +348,20 @@ def _masthead(race: dict) -> str:
         '</svg>'
     )
 
+    dist_label = units.fmt_dist(mi=float(distance or 0), nd=1)
+    pace_lbl = units.pace_label()
     return f"""  <!-- HEADER / MASTHEAD -->
   <header class="mast band">
     <div class="mast-main">
-      <div class="mast-eye"><span class="dot"></span>ACTIVE RACE<span class="sub">/ {name} &middot; {distance:g} miles</span></div>
+      <div class="mast-eye"><span class="dot"></span>ACTIVE RACE<span class="sub">/ {name} &middot; {dist_label}</span></div>
       <h1 class="title">{title_html}</h1>
       <div class="athlete">
         <span class="nm">{athlete}</span>
-        <span class="meta">Goal {goal_time} - {goal_pace} /mi target</span>
+        <span class="meta">Goal {goal_time} - {goal_pace} {pace_lbl} target</span>
       </div>
       <div class="mast-stats">
         <div class="kpi"><div class="k-lbl">Goal Time</div><div class="k-val">{goal_time}</div></div>
-        <div class="kpi"><div class="k-lbl">Target Pace</div><div class="k-val">{goal_pace}<small>/mi</small></div></div>
+        <div class="kpi"><div class="k-lbl">Target Pace</div><div class="k-val">{goal_pace}<small>{pace_lbl}</small></div></div>
         <div class="kpi"><div class="k-lbl">Predicted</div><div class="k-val" style="color:var(--klein)">{pred}</div></div>
         <div class="kpi">
           <div class="k-lbl">Goal Prob.</div>
@@ -521,7 +524,7 @@ def _consistency_mileage_split(cons: dict, weekly: list) -> str:
         easy_pct = 100 - long_pct
         bars.append(
             '<div class="bar-col">'
-            f'<div class="bar-val">{round(miles)}</div>'
+            f'<div class="bar-val">{round(units.mi_to_user(miles))}</div>'
             f'<div class="bar" style="height:{bar_pct:.1f}%">'
             f'<div class="seg easy" style="height:{easy_pct:.1f}%"></div>'
             f'<div class="seg long" style="height:{long_pct:.1f}%"></div>'
@@ -547,7 +550,7 @@ def _consistency_mileage_split(cons: dict, weekly: list) -> str:
     </div>
     <!-- WEEKLY MILEAGE -->
     <div class="col">
-      <div class="eyebrow"><span class="idx">04</span><span class="lbl">Weekly Mileage</span><span class="rt">Last 12 weeks &middot; miles</span></div>
+      <div class="eyebrow"><span class="idx">04</span><span class="lbl">Weekly Volume</span><span class="rt">Last 12 weeks &middot; {units.unit()}</span></div>
       <div class="mile-chart">{"".join(bars)}</div>
       <div class="mile-foot">
         <span><i style="background:var(--c3)"></i>Easy / workout volume</span>
@@ -573,7 +576,7 @@ def _best_efforts_table(best_efforts: dict) -> str:
                 f'          <td class="ev-idx">{n:02d}</td>\n'
                 f'          <td class="ev-dist">{label}</td>\n'
                 f'          <td class="ev-time">{time_str}</td>\n'
-                f'          <td class="ev-pace">{pace} /mi</td>\n'
+                f'          <td class="ev-pace">{pace} {units.pace_label()}</td>\n'
                 f'          <td class="ev-date">{datestr}</td>\n'
                 "        </tr>"
             )
@@ -631,13 +634,13 @@ def _plan_progress_col(data: dict, active_info: dict, today: date) -> str:
         inner = f"""      <div class="eyebrow"><span class="idx">06</span><span class="lbl">Plan Progress</span><span class="rt">{block_label}</span></div>
       <div class="plan-top">
         <div class="pt-wk">Week {cur_num} <small>of {n_weeks}</small></div>
-        <div class="pt-mi"><b>{target:g} mi</b> planned<br><b>{actual:g} mi</b> done</div>
+        <div class="pt-mi"><b>{units.fmt_dist(mi=target)}</b> planned<br><b>{units.fmt_dist(mi=actual)}</b> done</div>
       </div>
       <div class="phases" style="grid-template-columns:{grid_cols}">
         {"".join(phase_cells)}
       </div>
       <div class="wk-prog">
-        <div class="wp-head"><span class="wp-l">This week &mdash; volume</span><span class="wp-v">{actual:g} / {target:g} mi</span></div>
+        <div class="wp-head"><span class="wp-l">This week &mdash; volume</span><span class="wp-v">{units.mi_to_user(actual):.1f} / {units.fmt_dist(mi=target)}</span></div>
         <div class="wp-track"><div class="wp-fill" style="width:{wp_pct:.1f}%"></div></div>
       </div>"""
         return inner
@@ -874,7 +877,7 @@ def _assemble_data() -> dict:
     elif abs(distance_mi - 3.11) < 0.2:
         distance_label = "5K"
     else:
-        distance_label = f"{distance_mi:g} mi"
+        distance_label = units.fmt_dist(mi=distance_mi)
 
     # Generic goal short label: "Sub-3:45" from "3:45:00", "Sub-1:59" from "1:59:59".
     goal_short = f"Sub-{active_info['goal_time'].rsplit(':', 1)[0]}"
@@ -900,8 +903,7 @@ def _assemble_data() -> dict:
                         "In reach. Hold the volume and execute."
                         if prob < 0.65 else
                         "On track. Hold the volume and you clear it.")
-        pred_pace_sec = pred_sec / distance_mi
-        pred_pace = f"{int(pred_pace_sec // 60)}:{int(pred_pace_sec % 60):02d}/mi"
+        pred_pace = units.fmt_pace(sec_per_m=pred_sec / race_distance_m)
         margin_sec = config.goal_time_to_sec(active_info["goal_time"]) - pred_sec
 
         race_info = {

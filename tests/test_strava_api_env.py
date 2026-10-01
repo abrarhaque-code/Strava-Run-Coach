@@ -62,3 +62,51 @@ class TestLoadEnv(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRefreshAndStreams(unittest.TestCase):
+    """No network: the token endpoint and the request layer are mocked."""
+
+    def _api(self):
+        api = strava_api.StravaAPI.__new__(strava_api.StravaAPI)
+        api.env = {"STRAVA_CLIENT_ID": "1", "STRAVA_CLIENT_SECRET": "s",
+                   "STRAVA_REFRESH_TOKEN": "r", "STRAVA_ACCESS_TOKEN": "a",
+                   "STRAVA_TOKEN_EXPIRES_AT": "0"}
+        return api
+
+    def test_rotated_refresh_token_is_explained(self):
+        import io
+        import urllib.error
+        body = b'{"message":"Bad Request","errors":[{"code":"invalid","field":"refresh_token"}]}'
+        err = urllib.error.HTTPError("https://www.strava.com/oauth/token", 400, "Bad Request",
+                                     {}, io.BytesIO(body))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(strava_api.AuthError) as cm:
+                self._api()._refresh_access_token()
+        msg = str(cm.exception)
+        self.assertIn("REFRESH TOKEN (400)", msg)
+        self.assertIn("rotates it on every refresh", msg)
+        self.assertIn("strava_authorize.py", msg)
+        self.assertIn("coach.py analyze", msg)
+
+    def test_other_refresh_errors_keep_the_plain_message(self):
+        import io
+        import urllib.error
+        err = urllib.error.HTTPError("https://www.strava.com/oauth/token", 503, "Unavailable",
+                                     {}, io.BytesIO(b"down"))
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(strava_api.AuthError) as cm:
+                self._api()._refresh_access_token()
+        self.assertIn("Token refresh failed (503)", str(cm.exception))
+        self.assertNotIn("rotates", str(cm.exception))
+
+    def test_default_stream_keys_include_moving_and_watts(self):
+        api = self._api()
+        with mock.patch.object(api, "_request", return_value={}) as req:
+            api.get_activity_streams(42)
+        path, params = req.call_args[0]
+        self.assertEqual(path, "/activities/42/streams")
+        keys = params["keys"].split(",")
+        for k in ("time", "distance", "heartrate", "velocity_smooth", "cadence", "altitude",
+                  "moving", "watts"):
+            self.assertIn(k, keys)

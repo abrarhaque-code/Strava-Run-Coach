@@ -253,6 +253,18 @@ class StravaAPI:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
+            if e.code in (400, 401):
+                # The usual cause, which the bare body never states: Strava
+                # rotates the refresh token on every refresh, so a token that
+                # another process (or an earlier container whose .env died
+                # with it) already used is dead.
+                raise AuthError(
+                    f"Strava rejected the REFRESH TOKEN ({e.code}): {body.strip()}. "
+                    "Strava rotates it on every refresh, so this one has been "
+                    "superseded or revoked. Fix: run `python3 strava_authorize.py` and put the new "
+                    "STRAVA_REFRESH_TOKEN in .env or the environment, or skip the "
+                    "API entirely and ingest through the Strava MCP "
+                    "(`python3 coach.py analyze data/mcp/`).")
             raise AuthError(f"Token refresh failed ({e.code}): {body}")
 
         # Strava returns: access_token, refresh_token, expires_at, expires_in, token_type
@@ -393,8 +405,10 @@ class StravaAPI:
         Returns dict mapping stream type -> {data: [...], original_size, resolution}.
         """
         if keys is None:
+            # `moving` is what the rep detector uses to find standing
+            # recoveries; `watts` is kept for runners with a power source.
             keys = ["time", "distance", "heartrate", "velocity_smooth",
-                    "cadence", "altitude"]
+                    "cadence", "altitude", "moving", "watts"]
         return self._request(f"/activities/{activity_id}/streams", {
             "keys": ",".join(keys),
             "key_by_type": "true",

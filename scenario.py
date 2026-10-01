@@ -28,6 +28,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 import config
+import units
 from race_predictor import (
     load_activities,
     compute_vdot,
@@ -408,29 +409,33 @@ def print_scenarios(entries=None):
     print(f"  Anchor fitness (endurance): VDOT {r['anchor_vdot']:.1f}")
     src = r["anchor_src"]
     if src.get("date"):
-        dist = f"{src.get('distance_mi', 0):.1f}mi " if src.get("distance_mi") else ""
+        dist = f"{units.fmt_dist(mi=src['distance_mi'])} " if src.get("distance_mi") else ""
         print(f"    from {dist}on {src['date']}  [{src.get('name','')}]")
     xt = r["crosstrain_equiv_mpw"]
-    print(f"  Current running volume: {r['run_mpw']:.0f} mpw (trailing 4 wk, runs only)")
+    vol = units.volume_label()
+    print(f"  Current running volume: {units.mi_to_user(r['run_mpw']):.0f} {vol} (trailing 4 wk, runs only)")
     if xt >= 0.1:
-        print(f"  + Zone-2 cross-training:  {xt:.0f} mpw-equiv  "
-              f"->  aerobic-equivalent base {r['aerobic_mpw']:.0f} mpw")
+        print(f"  + Zone-2 cross-training:  {units.mi_to_user(xt):.0f} {vol}-equiv  "
+              f"->  aerobic-equivalent base {units.mi_to_user(r['aerobic_mpw']):.0f} {vol}")
+    bs = r["block_start"]
+    block_month = bs.strftime("%b") if hasattr(bs, "strftime") else str(bs)[5:7]
     print(f"  16-wk block starts ~{r['block_start']}  ->  runway to build base: "
           f"{r['runway_weeks']:.1f} weeks")
     print()
     print(f"  {'Entry':>6} {'Peak':>6} {'Avg':>5} {'Long':>5}  {'Marathon range':>17}  "
           f"{'Reach base?':>12}")
-    print(f"  {'mpw':>6} {'mpw':>6} {'mpw':>5} {'run':>5}  {'(projected)':>17}  "
-          f"{'by Jul':>12}")
+    print(f"  {vol:>6} {vol:>6} {vol:>5} {'run':>5}  {'(projected)':>17}  "
+          f"{'by ' + block_month:>12}")
     print("  " + "-" * 64)
     for row in r["rows"]:
         ramp, proj, feas = row["ramp"], row["proj"], row["feas"]
         rng = f"{fmt_time(proj['fast_sec'])}-{fmt_time(proj['slow_sec'])}"
-        print(f"  {row['entry']:>6.0f} {ramp['peak_mi']:>6.0f} {ramp['avg_mi']:>5.0f} "
-              f"{ramp['long_run_peak']:>5.0f}  {rng:>17}  {feas['label']:>12}")
+        print(f"  {units.mi_to_user(row['entry']):>6.0f} {units.mi_to_user(ramp['peak_mi']):>6.0f} "
+              f"{units.mi_to_user(ramp['avg_mi']):>5.0f} {units.mi_to_user(ramp['long_run_peak']):>5.0f}  "
+              f"{rng:>17}  {feas['label']:>12}")
     print()
     print("  How to read this:")
-    print(f"  - Peak mpw ~= entry x {cfg()['peak_multiplier']:.2f} (the build factor, "
+    print(f"  - Peak {vol} ~= entry x {cfg()['peak_multiplier']:.2f} (the build factor, "
           "tunable in config).")
     print("    Peak is tied to entry, so a low entry caps how high you can safely build.")
     print("  - Marathon range blends a bounded aerobic gain over the block with a")
@@ -438,7 +443,8 @@ def print_scenarios(entries=None):
     print("  - 'Reach base?' uses RUNNING volume only: biking builds the aerobic")
     print("    engine but not impact durability, so it can't justify a steeper run ramp.")
     print("    Z2 bike still counts as aerobic-equivalent base above and as an easy-run")
-    print("    substitute in the plan (10 min ~= 1 mi).")
+    bike_min = float(config.crosstrain_cfg().get("bike_min_per_mi", 10.0))
+    print(f"    substitute in the plan ({bike_min:.0f} min ~= {units.fmt_dist(mi=1)}).")
     print()
     print("  Caveats (read these): ramp percentages are heuristics, not validated")
     print("  laws; the volume->time link is correlational and individual. Treat the")
@@ -456,5 +462,5 @@ if __name__ == "__main__":
             if val is None:
                 idx = args.index(a)
                 val = args[idx + 1] if idx + 1 < len(args) else ""
-            entries = [float(x) for x in val.split(",") if x.strip()]
+            entries = [units.parse_dist(x) for x in val.split(",") if x.strip()]
     print_scenarios(entries)

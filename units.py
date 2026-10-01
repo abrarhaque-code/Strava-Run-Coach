@@ -137,3 +137,8 @@ def parse_pace(text) -> float:
     if not suffix:
         suffix = unit()
     return minutes if suffix.startswith("mi") else minutes * KM_PER_MI
+
+
+def per_mi_to_user(x: float) -> float:
+    """A per-mile rate (seconds per mile, effort per mile) in the user's unit."""
+    return x if unit() == "mi" else x / KM_PER_MI

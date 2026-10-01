@@ -24,6 +24,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Optional
 import config
+import units
 
 
 CACHE_DIR = config.ACTIVITIES_DIR
@@ -308,19 +309,24 @@ def fmt_time(seconds: float) -> str:
 # Eddington
 # ---------------------------------------------------------------------------
 
-def eddington_number(activities: list, sport_type: str = "Run") -> int:
-    """Largest N where you have at least N runs of N+ miles.
+def _distance_user(a: dict) -> float:
+    """Distance in the athlete's configured unit (Eddington is unit-relative)."""
+    import units
+    return units.mi_to_user(_distance_mi(a))
 
-    Classic running Eddington number. E=12 means 12 runs of 12+ miles.
-    Single elegant metric of training depth.
+
+def eddington_number(activities: list, sport_type: str = "Run") -> int:
+    """Largest N where you have at least N runs of N+ units (miles or km,
+    whichever the athlete uses: E=12 means 12 runs of 12+ mi for a miles
+    runner, 12 runs of 12+ km for a metric one). A single metric of depth.
     """
     runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
             and (sport_type != "Run" or _is_run(a))]
     if not runs:
         return 0
-    distances_mi = sorted([_distance_mi(r) for r in runs], reverse=True)
+    distances = sorted([_distance_user(r) for r in runs], reverse=True)
     e = 0
-    for i, d in enumerate(distances_mi, 1):
+    for i, d in enumerate(distances, 1):
         if d >= i:
             e = i
         else:
@@ -334,7 +340,7 @@ def eddington_progress(activities: list, sport_type: str = "Run") -> dict:
     next_n = e + 1
     runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
             and (sport_type != "Run" or _is_run(a))]
-    runs_at_or_above = sum(1 for r in runs if _distance_mi(r) >= next_n)
+    runs_at_or_above = sum(1 for r in runs if _distance_user(r) >= next_n)
     runs_needed = max(0, next_n - runs_at_or_above)
     return {
         "current": e,
@@ -643,9 +649,10 @@ def print_summary():
 
     e = eddington_progress(runs)
     print("EDDINGTON")
-    print(f"  Current: E={e['current']} (you have {e['current']}+ runs of {e['current']}+ miles)")
+    u = units.unit()
+    print(f"  Current: E={e['current']} (you have {e['current']}+ runs of {e['current']}+ {u})")
     print(f"  Next:    E={e['next_n']} needs {e['runs_needed_for_next']} more runs of "
-          f"{e['next_n']}+ miles ({e['runs_at_or_above_next']} so far)")
+          f"{e['next_n']}+ {u} ({e['runs_at_or_above_next']} so far)")
     print()
 
     s = current_streak(runs)
@@ -667,7 +674,7 @@ def print_summary():
     for label in ["1mi", "5K", "10K", "10mi", "HM"]:
         if label in be:
             b = be[label]
-            print(f"  {label:5s}: {b['time_str']:>9s} @ {b['pace_str']}/mi | "
+            print(f"  {label:5s}: {b['time_str']:>9s} @ {b['pace_str']}{units.pace_label()} | "
                   f"VDOT {b['vdot']:.1f} | {b['date']} | {b['activity_name']}")
         else:
             print(f"  {label:5s}: -- (no qualifying effort)")
@@ -675,13 +682,13 @@ def print_summary():
 
     print("YEAR SUMMARY")
     for y in year_summary(runs):
-        print(f"  {y['year']}: {y['run_count']:3d} runs | {y['total_mi']:6.1f} mi | "
-              f"longest {y['longest_mi']:5.1f} mi | avg pace {y['avg_pace_str']}/mi | "
+        print(f"  {y['year']}: {y['run_count']:3d} runs | {units.fmt_dist(mi=y['total_mi']):>10} | "
+              f"longest {units.fmt_dist(mi=y['longest_mi'])} | avg pace {y['avg_pace_str']}{units.pace_label()} | "
               f"5K {y['best_5k']} | 10K {y['best_10k']} | HM {y['best_hm']}")
 
     r = rolling_year_summary(runs)
-    print(f"  Last 365: {r['run_count']:3d} runs | {r['total_mi']:6.1f} mi | "
-          f"longest {r['longest_mi']:5.1f} mi")
+    print(f"  Last 365: {r['run_count']:3d} runs | {units.fmt_dist(mi=r['total_mi']):>10} | "
+          f"longest {units.fmt_dist(mi=r['longest_mi'])}")
     print()
 
 
