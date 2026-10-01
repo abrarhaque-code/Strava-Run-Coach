@@ -3,7 +3,7 @@
 Usage:
     python3 coach.py            # full coaching report (default)
     python3 coach.py brief      # daily brief only
-    python3 coach.py review     # post-run review (latest run)
+    python3 coach.py review [<id>] [--json]  # post-run review (latest run by default)
     python3 coach.py fitness    # fitness tracker (CTL/ATL/TSB)
     python3 coach.py forecast   # race forecast
     python3 coach.py week       # weekly check-in
@@ -130,7 +130,7 @@ def main():
     routes = {
         "full": full_report,
         "brief": lambda: _run_module("daily_brief"),
-        "review": lambda: _run_module("post_run_review"),
+        "review": lambda: _run_module("post_run_review", extra),
         "fitness": lambda: _run_module("fitness_tracker"),
         "forecast": lambda: _run_module("race_predictor"),
         "metrics": lambda: _run_module("metrics"),

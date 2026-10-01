@@ -170,6 +170,7 @@ def _make_run(dt: datetime, name: str, dist_mi: float, pace: float,
 
     d = {
         "id": None,  # filled by caller
+        "_source": "sample",
         "name": name,
         "type": "Run",
         "start_date": _iso_local(dt),       # treat as naive local for samples
@@ -225,6 +226,7 @@ def _make_lift(dt: datetime, name: str, rng: random.Random) -> dict:
     elapsed_s = rng.randint(30, 50) * 60
     return {
         "id": None,
+        "_source": "sample",
         "name": name,
         "type": "Weight Training",
         "start_date": _iso_local(dt),

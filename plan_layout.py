@@ -293,16 +293,28 @@ def _pace_range(paces: dict, key: Optional[str]) -> str:
         return ""
 
 
+_DIST_TOKEN = re.compile(r"\b\d+(?:\.\d+)?\s*(?:mi|km)\b")
+
+
 def format_session(day: dict, paces: Optional[dict] = None) -> str:
-    """'KEY: 6.0 mi: 1 easy, 3.3 at tempo, 1 easy @ 8:50-9:10/mi, HR < 160  [lift]'"""
+    """'Easy 6.0 mi: 1 easy, 3.3 at tempo, 1 easy @ 8:50-9:10/mi, HR < 160  [lift]'
+
+    The distance is re-rendered from `distance_mi` in the user's current unit,
+    so a plan generated in miles reads in km after a units change."""
     desc = day.get("description") or day.get("role", "").title()
-    bits = [desc.replace("  [lift]", "")]
+    desc = desc.replace("  [lift]", "")
+    if day.get("distance_mi") and _DIST_TOKEN.search(desc):
+        desc = _DIST_TOKEN.sub(units.fmt_dist(mi=float(day["distance_mi"])), desc, count=1)
+    bits = [desc]
     pr = _pace_range(paces or {}, day.get("pace")) if day.get("role") not in ("rest",) else ""
     if pr:
         bits.append(f"@ {pr}")
     if day.get("hr_cap"):
         bits.append(f"HR < {int(day['hr_cap'])}")
-    out = ", ".join(bits[:1] + [", ".join(bits[1:])]) if len(bits) > 1 else bits[0]
+    if len(bits) > 1:
+        out = bits[0] + (" " if bits[1].startswith("@") else ", ") + ", ".join(bits[1:])
+    else:
+        out = bits[0]
     if day.get("strength"):
         out += "  [lift]"
     return out
