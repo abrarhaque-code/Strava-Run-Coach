@@ -11,7 +11,8 @@ Usage:
     python3 coach.py sync       # sync from Strava + full report
     python3 coach.py scenario   # base-build scenarios (20/25/30 -> peak -> marathon)
     python3 coach.py plan       # generate a parametric 16-week marathon plan
-    python3 coach.py analyze --from-mcp <file.json>  # ingest Strava MCP JSON, then report
+    python3 coach.py ingest data/mcp/   # merge Strava MCP payloads (list/perf/streams) into the cache
+    python3 coach.py analyze [data/mcp/]  # ingest, then the full report + base-build scenarios
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
     python3 coach.py note "..." # log an in-the-moment adjustment to this week
     python3 coach.py trends     # long-horizon lenses: drift, efficiency, recovery
@@ -159,50 +160,31 @@ def main():
         _run_module("dashboard")
         return
 
+    if cmd == "ingest":
+        # Merge Strava MCP payloads (list pages + perf/<id>.json + streams/<id>.json)
+        # into the cache. `ingest` with no path reads data/mcp/.
+        sys.exit(_run_module("mcp_adapter", extra))
+
     if cmd == "analyze":
-        # Ingest Strava MCP list_activities JSON dump(s), then report. Lets any
-        # Claude session with the Strava MCP drive the coach with no OAuth/sync.
-        # Multiple files = multiple pages from the has_next_page/end_cursor
-        # loop; --performance folds in get_activity_performance payloads
-        # (HR + laps) so TSS goes HR-based and lap analysis lights up.
-        from mcp_adapter import ingest_mcp_file
-        paths = []
-        performance = None
-        i = 0
-        while i < len(extra):
-            a = extra[i]
-            if a == "--from-mcp" and i + 1 < len(extra):
-                paths.append(extra[i + 1])
-                i += 2
-            elif a.startswith("--from-mcp="):
-                paths.append(a.split("=", 1)[1])
-                i += 1
-            elif a == "--performance" and i + 1 < len(extra):
-                performance = extra[i + 1]
-                i += 2
-            elif a.startswith("--performance="):
-                performance = a.split("=", 1)[1]
-                i += 1
-            elif not a.startswith("-") and paths:
-                paths.append(a)  # extra page files after --from-mcp
-                i += 1
-            else:
-                i += 1
-        if not paths:
-            print("Usage: python3 coach.py analyze --from-mcp <file.json>... "
-                  "[--performance <file-or-dir>]")
+        # Ingest, then the whole report. Lets any Claude session with the
+        # Strava MCP drive the coach with no OAuth/sync. Legacy
+        # `--from-mcp <file> [--performance <f>]` still works.
+        import mcp_adapter
+        try:
+            opts = mcp_adapter.parse_cli(extra)
+        except ValueError as e:
+            print(f"  [mcp] {e}")
+            print("Usage: python3 coach.py analyze [data/mcp/ | <files...>]")
             sys.exit(1)
-        summary = ingest_mcp_file(paths, performance=performance)
-        print(f"Ingested {summary['written']} activities from {len(paths)} file(s)")
-        for t, c in sorted(summary["by_type"].items()):
-            print(f"  {t:14} {c}")
-        if summary.get("performance_merged"):
-            print(f"  performance merged into {summary['performance_merged']} activities")
+        res = mcp_adapter.run_merge(opts["paths"], dry_run=opts["dry_run"])
+        if opts["dry_run"]:
+            return
         _auto_reconcile()
-        _section("RACE FORECAST")
-        _run_module("race_predictor")
+        full_report(save_brief=True)
         _section("BASE-BUILD SCENARIOS")
         _run_module("scenario")
+        if res["import"] and res["import"]["written"] == 0:
+            sys.exit(1)
         return
 
     if cmd not in routes:
