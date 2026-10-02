@@ -20,5 +20,11 @@
     "training-plan",
     "vdot"
   ],
-  "skills": "./.claude/skills"
+  "skills": "./.claude/skills",
+  "mcpServers": {
+    "strava": {
+      "type": "http",
+      "url": "https://mcp.strava.com/mcp"
+    }
+  }
 }

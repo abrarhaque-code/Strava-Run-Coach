@@ -86,7 +86,7 @@ def full_report(save_brief: bool = False):
         # user who intends to sync real data shouldn't get fake miles.
         print("No training data yet.")
         print("  Demo with sample data:  python3 coach.py init --sample")
-        print("  Or connect Strava:      see README 'Connect your Strava'")
+        print('  Or connect Strava:      say "coach me" to Claude, or see docs/TERMINAL.md')
         return
 
     _section("DAILY BRIEF")
@@ -131,12 +131,12 @@ def main():
 
     routes = {
         "full": full_report,
-        "brief": lambda: _run_module("daily_brief"),
+        "brief": lambda: _run_module("daily_brief", extra),
         "review": lambda: _run_module("post_run_review", extra),
         "fitness": lambda: _run_module("fitness_tracker"),
         "forecast": lambda: _run_module("race_predictor"),
         "metrics": lambda: _run_module("metrics"),
-        "week": lambda: _run_module("weekly_check"),
+        "week": lambda: _run_module("weekly_check", extra),
         "dashboard": lambda: _run_module("dashboard"),
         "scenario": lambda: _run_module("scenario", extra),
         "plan": lambda: _run_module("plan_generator", extra),

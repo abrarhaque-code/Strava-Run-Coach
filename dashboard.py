@@ -86,10 +86,11 @@ def _signed(n: int, unit: str = "") -> str:
 def _theme_vars(t: dict) -> str:
     """Build the :root CSS block from config.theme().
 
-    Values default from config.example.json's Yves Klein Blue design-system
-    tokens (IKB ultramarine / warm paper / ink / flame accent). The three
-    ink/hairline shades are optional keys with token defaults, so a
-    pre-existing config.json without them keeps rendering unchanged.
+    Values default from config.example.json's Prospect Studio design-system
+    tokens (International Klein Blue as the ink, gallery paper, flame accent
+    at ~2%). The three ink/hairline shades are optional keys whose defaults
+    match the earlier palette, so a pre-existing config.json without them
+    keeps rendering unchanged.
     """
     heat = t["heatmap"]
     ink2 = t.get("ink_soft", "#5C5C5E")    # ds --ink-500: secondary text
@@ -115,7 +116,22 @@ def _theme_vars(t: dict) -> str:
 def _build_css(t: dict) -> str:
     disp = t["display_font"]
     mono = t["mono_font"]
+    serif = t.get("serif_font") or disp
     root = _theme_vars(t)
+    if serif != disp:
+        # The editorial serif register: sentence case, 400 + italic, tight leading.
+        title_css = (
+            f".title{{font-family:'{serif}',Georgia,serif; font-size:104px; line-height:.98; "
+            "font-weight:400; letter-spacing:-.015em; margin:6px 0 0}\n"
+            ".title .t1{display:inline-block; font-size:60px; line-height:1; letter-spacing:-.015em}\n"
+            ".title .b2{color:var(--klein); font-style:italic}"
+        )
+    else:
+        title_css = (
+            ".title{font-size:104px; line-height:.9; font-weight:700; letter-spacing:-.04em; margin:6px 0 0}\n"
+            ".title .t1{display:inline-block; font-size:60px; line-height:1; letter-spacing:-.02em}\n"
+            ".title .b2{color:var(--klein)}"
+        )
     return f"""<style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 {root}
@@ -154,9 +170,7 @@ body::before{{
   font-size:11.5px; letter-spacing:.24em; text-transform:uppercase; font-weight:700; margin-bottom:22px}}
 .mast-eye .dot{{width:9px;height:9px;background:var(--verm);border-radius:50%}}
 .mast-eye .sub{{color:var(--ink-3); font-weight:400; letter-spacing:.18em}}
-.title{{font-size:104px; line-height:.9; font-weight:700; letter-spacing:-.04em; margin:6px 0 0}}
-.title .t1{{display:inline-block; font-size:60px; line-height:1; letter-spacing:-.02em}}
-.title .b2{{color:var(--klein)}}
+{title_css}
 .athlete{{display:flex; align-items:baseline; gap:14px; margin-top:30px;
   font-family:'{mono}',monospace; text-transform:uppercase}}
 .athlete .nm{{font-size:15px; font-weight:700; letter-spacing:.18em}}
@@ -1025,11 +1039,13 @@ def _build_html(data: dict) -> str:
         _footer(race["race_name"], today),
     ])
 
+    serif = t.get("serif_font") or disp
+    serif_part = f'&family={serif.replace(" ", "+")}:ital@0;1' if serif != disp else ""
     fonts_link = (
         '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
         f'<link href="https://fonts.googleapis.com/css2?family={disp.replace(" ", "+")}:wght@400;500;700'
-        f'&family={mono.replace(" ", "+")}:wght@400;700&display=swap" rel="stylesheet">'
+        f'&family={mono.replace(" ", "+")}:wght@400;700{serif_part}&display=swap" rel="stylesheet">'
     )
 
     title = f"strava-run-coach &mdash; {race['race_name']} Training Report"

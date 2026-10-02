@@ -38,7 +38,7 @@ body:
         - Generated sample data (init --sample)
         - Strava bulk-export CSV
         - Strava API sync
-        - Strava MCP ingest (analyze --from-mcp)
+        - Strava connector through Claude ("coach me" / coach.py ingest)
     validations:
       required: true
   - type: input

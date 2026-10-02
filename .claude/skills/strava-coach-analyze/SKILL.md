@@ -29,9 +29,12 @@ checkout and no plugin: `git clone https://github.com/abrarhaque-code/Strava-Run
 Check for a `list_activities` tool. If it is missing, say how to connect it
 and either stop or fall back to the demo:
 
-- claude.ai / Cowork: Settings -> Connectors -> enable **Strava**.
-- Claude Code: `claude mcp add --transport http strava https://mcp.strava.com/mcp`
-  (the repo ships this in `.mcp.json`; approve it, then `/mcp` to authenticate).
+- The Claude desktop app (Cowork): Settings -> Connectors -> enable **Strava**,
+  with the project folder open in the session (the engine has to run somewhere;
+  in a web browser alone Claude can read Strava but cannot run `coach.py`).
+- Claude Code: the plugin and the repo both carry the Strava server; if it is
+  missing, `claude mcp add --transport http strava https://mcp.strava.com/mcp`,
+  approve it, then `/mcp` to authenticate.
 - No Strava at all: `python3 coach.py init --sample` builds a demo athlete.
 
 ## 2. Where things stand

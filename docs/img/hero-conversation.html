@@ -1,0 +1,118 @@
+<!doctype html>
+<!--
+  The README hero: one conversation with the coach, set in the Prospect Studio
+  design system (International Klein Blue ink on gallery paper, Instrument Serif
+  display, Archivo body, Space Mono labels, hard print-block shadows, square
+  corners, one flame dot). Token values are inlined because the design system is
+  not part of this repo.
+
+  Every coach line is real engine output from the demo athlete (coach.py init
+  --sample): the setup question the entry skill asks, and the review of a run
+  described as "3 easy, 4 tempo, 2 easy" (TEMPO, A/100, tempo 9:00/mi inside the
+  8:50-9:10 band, easy miles under the cap, finish held).
+
+  Re-render after editing:
+    NODE_PATH=$(npm root -g) node docs/img/render-hero.mjs
+  (needs Playwright + Chromium; see render-hero.mjs for the environment knobs)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Strava Run Coach: one conversation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;900&family=Instrument+Serif:ital@0;1&family=Space+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ikb-500: #002BBA;  --ikb-400: #2E52D6;  --ikb-300: #8CA1EC;  --ikb-200: #C9D3F2;
+    --paper-050: #FAFAF8; --paper-000: #FEFEFD; --white: #FFFFFF;
+    --flame-500: #F0400C;
+    --font-grotesk: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --font-serif: 'Instrument Serif', 'Times New Roman', Georgia, serif;
+    --font-mono: 'Space Mono', ui-monospace, Menlo, monospace;
+    --shadow-block-blue: 6px 6px 0 var(--ikb-500);
+    --tracking-label: 0.18em;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper-050); }
+  .card {
+    position: relative; width: 1000px; padding: 40px 48px 36px 48px;
+    background: var(--paper-050); color: var(--ikb-500); font-family: var(--font-grotesk);
+    background-image:
+      repeating-linear-gradient(to right, rgba(0,43,186,0.07) 0 1px, transparent 1px 64px),
+      repeating-linear-gradient(to bottom, rgba(0,43,186,0.07) 0 1px, transparent 1px 64px);
+  }
+  .mono { font-family: var(--font-mono); font-size: 11px; letter-spacing: var(--tracking-label);
+          text-transform: uppercase; line-height: 1; }
+  .head { display: flex; justify-content: space-between; align-items: center; color: var(--ikb-500); }
+  .mark { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-grotesk);
+          font-weight: 900; font-size: 15px; letter-spacing: -0.02em; text-transform: uppercase; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--flame-500); display: inline-block; }
+  .display { font-family: var(--font-serif); font-weight: 400; font-size: 54px; line-height: 0.98;
+             letter-spacing: -0.015em; margin: 34px 0 30px 0; color: var(--ikb-500); }
+  .display em { font-style: italic; }
+  .chat { display: flex; flex-direction: column; gap: 22px; padding-right: 26px; }
+  .turn { display: flex; flex-direction: column; }
+  .turn .who { color: var(--ikb-400); margin-bottom: 7px; }
+  .you { align-items: flex-end; }
+  .you .bubble { background: var(--ikb-500); color: var(--white); max-width: 58%; }
+  .coach { align-items: flex-start; }
+  .coach .bubble { background: var(--paper-000); color: var(--ikb-500); border: 1.5px solid var(--ikb-500);
+                   box-shadow: var(--shadow-block-blue); max-width: 76%; }
+  .bubble { font-size: 17px; line-height: 1.5; padding: 14px 18px; border-radius: 0; }
+  .bubble b { font-weight: 500; }
+  .chip { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11px;
+          letter-spacing: 0.16em; text-transform: uppercase; line-height: 1; padding: 6px 8px;
+          border: 1.5px solid var(--ikb-500); color: var(--ikb-500); background: var(--paper-050);
+          margin: 0 6px 0 2px; vertical-align: 2px; }
+  .foot { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--ikb-200);
+          display: flex; justify-content: space-between; color: var(--ikb-400); }
+  .reg { position: absolute; left: 18px; bottom: 18px; width: 22px; height: 22px; color: var(--ikb-500); }
+  .reg::before, .reg::after { content: ""; position: absolute; background: currentColor; }
+  .reg::before { left: 50%; top: 0; width: 1px; height: 100%; transform: translateX(-50%); }
+  .reg::after { top: 50%; left: 0; height: 1px; width: 100%; transform: translateY(-50%); }
+  .reg i { position: absolute; inset: 4px; border: 1px solid currentColor; border-radius: 50%; }
+  .vlabel { position: absolute; right: 16px; top: 120px; writing-mode: vertical-rl; color: var(--ikb-300);
+            font-size: 10px; letter-spacing: 0.24em; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <span class="mark">Strava Run Coach <span class="dot"></span></span>
+    <span class="mono">One conversation · No. 001</span>
+  </div>
+  <p class="display">Say <em>coach me</em>. It reads your Strava first,<br>then opens its mouth.</p>
+
+  <div class="chat">
+    <div class="turn you">
+      <span class="mono who">You</span>
+      <div class="bubble">coach me</div>
+    </div>
+    <div class="turn coach">
+      <span class="mono who">Coach</span>
+      <div class="bubble">Pulled your last 90 days from Strava. Strava says you're training for the <b>City Marathon</b> on <b>Nov 1</b> (26.2 mi). What's your goal time? If anything there is wrong, correct it in the same reply.</div>
+    </div>
+    <div class="turn you">
+      <span class="mono who">You</span>
+      <div class="bubble">3:45. And long runs are Sundays for me, not Saturdays.</div>
+    </div>
+    <div class="turn coach">
+      <span class="mono who">Coach</span>
+      <div class="bubble">Done: five days a week, Sunday long run, three-week taper into Nov 1. Tuesday's run, which you logged as <b>"3 easy, 4 tempo, 2 easy"</b>: the four tempo miles sat at 9:00 inside your band, the easy miles stayed under your cap, and you held your pace after the work. <span class="chip">Grade A · 100/100</span> Tomorrow is easy.</div>
+    </div>
+    <div class="turn you">
+      <span class="mono who">You</span>
+      <div class="bubble">fair.</div>
+    </div>
+  </div>
+
+  <div class="foot mono">
+    <span>Runs on your computer · Your data stays with you</span>
+    <span>Miles or km, as Strava has it</span>
+  </div>
+  <span class="reg"><i></i></span>
+  <span class="vlabel mono">Run · Review · Plan · Race</span>
+</div>
+</body>
+</html>

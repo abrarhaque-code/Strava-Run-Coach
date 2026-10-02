@@ -20,7 +20,8 @@ never commit anything under `data/`.
 
 ## Docs
 
-- [README](README.md): quickstart, command table, Use-with-Claude flow
+- [README](README.md): for runners: what the coach does, how to start, why to trust it
+- [Terminal](docs/TERMINAL.md): run it yourself, Strava API setup, the commands in plain words
 - [Coaching](docs/COACHING.md): how the coach talks; verify before escalating
 - [Methodology](docs/METHODOLOGY.md): the named, cited models (VDOT, TSS,
   CTL/ATL/TSB, two-stream load, pace-matched decoupling, the grade, ACWR caveats)
