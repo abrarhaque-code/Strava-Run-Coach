@@ -60,6 +60,12 @@ class TestDerivations(unittest.TestCase):
         self.assertIsNone(ob.observed_max_hr(ACTS[:2])[0])
         self.assertIn("unverified", ob.observed_max_hr([])[1])
 
+    def test_long_run_threshold_scales_with_volume(self):
+        big = [_run(d, miles=11, hr=140) for d in range(1, 28, 2)]        # 14 runs x 11 mi in 4 weeks
+        cfg, _, notes = ob.plan_config(None, None, big, {"no_race": True}, TODAY)
+        self.assertEqual(cfg["trends"]["long_run_min_mi"], 10)             # 25% of ~38.5 mpw
+        self.assertTrue(any("counts as long from 10 mi" in n for n in notes))
+
     def test_easy_pace_and_volume(self):
         band = ob.easy_pace_from_data(ACTS, easy_cap=148, today=TODAY)
         self.assertEqual(band, (10.25, 9.75))
@@ -82,6 +88,8 @@ class TestPlanConfig(unittest.TestCase):
         self.assertEqual((ath["name"], ath["units"], ath["max_hr"]), ("Sam Runner", "km", 178))
         self.assertEqual(ath["easy_hr_cap"], 160)                          # zones Z2 top
         self.assertEqual(ath["threshold_hr"], 177)                         # zones Z4 floor
+        self.assertEqual(ath["long_run_hr_cap"], 157)                      # easy cap - 3
+        self.assertEqual(cfg["trends"]["long_run_min_mi"], 7)              # 25% of 12 mpw, floored at 7
         race = cfg["races"][0]
         self.assertEqual(cfg["active_race"], race["id"])
         self.assertEqual((race["name"], race["date"], race["distance_mi"], race["goal_time"]),

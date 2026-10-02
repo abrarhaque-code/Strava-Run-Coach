@@ -1,8 +1,8 @@
 {
   "name": "strava-run-coach",
   "displayName": "Strava Run Coach",
-  "version": "1.0.0",
-  "description": "A stdlib-only Python running coach Claude can drive: pull Strava history via the Strava MCP, get VDOT race forecasts, CTL/ATL/TSB fitness, periodized training plans, and weekly reviews.",
+  "version": "1.1.0",
+  "description": "A stdlib-only Python running coach Claude drives over the Strava MCP: say \"coach me\" and it sets itself up from your Strava profile and zones, asks for your goal time, builds a plan around your week, and coaches: graded run reviews, weekly check-ins, VDOT race forecasts, CTL/ATL/TSB fitness.",
   "author": {
     "name": "strava-run-coach contributors"
   },
@@ -10,13 +10,15 @@
   "repository": "https://github.com/abrarhaque-code/Strava-Run-Coach",
   "license": "MIT",
   "keywords": [
+    "coaching",
+    "half-marathon",
+    "marathon",
+    "mcp",
+    "run-review",
     "running",
     "strava",
-    "coaching",
-    "vdot",
-    "marathon",
     "training-plan",
-    "mcp"
+    "vdot"
   ],
   "skills": "./.claude/skills"
 }

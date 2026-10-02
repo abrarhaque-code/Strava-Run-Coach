@@ -59,6 +59,7 @@ START_WAIT_MIN_S = 300           # a 5+ min stop inside lap 1 is pre-run waiting
 LONG_RUN_DISTANCE_PCT = 0.90     # under this share of the long-run target = missed long run
 NOT_THE_LONG_RUN_PCT = 0.70      # under this share it was not the long run at all
 CAP_DISTANCE_TOL = 0.15          # the clock cap belongs to the planned long run's distance
+LONG_RUN_QUALITY_SHARE = 1 / 3   # quality under this share of a long run leaves it a long run
 SEGMENT_PACE_SLACK_SEC = 10      # a segment this close outside its band is a watch
 REAL_DRIFT_BPM = 8               # pace-matched HR delta above this is real decoupling
 
@@ -1138,9 +1139,20 @@ def classify_session(a: dict, intent: Optional[dict], plan_role: Optional[str] =
     if not intent and looks_like_intervals(a):
         return "INTERVALS", "shape"
     if intent:
-        if dist_mi >= config.long_run_min_mi():
+        quality = session_intent.quality_segments(intent)
+        kinds = {sg.get("kind") for sg in quality}
+        q_mi = sum(float(sg.get("miles") or 0) for sg in quality)
+        is_long = dist_mi >= config.long_run_min_mi()
+        # A long run with a block inside it (marathon-pace miles, or quality under a
+        # third of the distance) is still the long run; otherwise the declared block
+        # is the session, whatever the total distance.
+        if quality and not (kinds & {"mp"}) and not (is_long and q_mi < LONG_RUN_QUALITY_SHARE * dist_mi):
+            if kinds & {"threshold", "half", "10k", "5k"}:
+                return "THRESHOLD", "intent"
+            return "TEMPO", "intent"
+        if is_long:
             return "LONG RUN", "intent"
-        return ("TEMPO" if session_intent.quality_segments(intent) else "EASY"), "intent"
+        return ("TEMPO" if quality else "EASY"), "intent"
     if plan_role == "long" and dist_mi >= NOT_THE_LONG_RUN_PCT * config.long_run_min_mi():
         return "LONG RUN", "plan"
     if plan_role == "key":

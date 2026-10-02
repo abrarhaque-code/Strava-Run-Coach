@@ -138,7 +138,9 @@ class TestStatusAndContext(unittest.TestCase):
         today = date.today()
         acts = []
         for d, miles in ((9, 5), (6, 6), (3, 5), (1, 10)):
-            start = datetime.combine(today - timedelta(days=d), datetime.min.time()) + timedelta(hours=7)
+            # midnight starts: history_days is measured against now(), so a 07:00 start
+            # read as 8 days instead of 9 whenever the suite ran before 07:00
+            start = datetime.combine(today - timedelta(days=d), datetime.min.time())
             acts.append(enrich(make_activity(start_date_local=start.isoformat(timespec="seconds"),
                                              start_date=start.isoformat(timespec="seconds") + "Z",
                                              distance=miles * 1609.34, moving_time=int(miles * 600),

@@ -156,3 +156,32 @@ class TestEntryAndWrite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestShortBlockSizing(unittest.TestCase):
+    """A marathon five weeks out: keep the taper, do not invent a peak, grow the
+    long run from what the athlete already runs (the live check that found it)."""
+
+    def test_five_week_marathon_block(self):
+        plan = pg.generate_plan_dict(45, today=date(2026, 10, 1), long_run_entry_mi=18.0)
+        m, inp = plan["_meta"], plan["_meta"]["inputs"]
+        self.assertEqual(len(plan["weeks"]), 5)
+        self.assertEqual((inp["build_weeks"], inp["taper_weeks"]), (2, 3))
+        self.assertLessEqual(m["peak_mi"], 45 * 1.2)                  # not 1.9x
+        self.assertLessEqual(m["long_run_peak"], 18.0 + 1.5)          # near the recent longest
+        self.assertGreaterEqual(m["long_run_peak"], 17.0)
+        self.assertEqual([w["phase"] for w in plan["weeks"]].count("taper"), 3)
+
+    def test_no_recent_long_run_seeds_from_entry(self):
+        plan = pg.generate_plan_dict(25, today=date(2026, 10, 1))
+        m, inp = plan["_meta"], plan["_meta"]["inputs"]
+        self.assertAlmostEqual(inp["long_run_entry_mi"], 7.5)         # 30% of entry
+        self.assertLessEqual(m["long_run_peak"], 10.0)
+        self.assertLessEqual(m["peak_mi"], 25 * 1.2)
+
+    def test_full_block_is_unchanged(self):
+        plan = pg.generate_plan_dict(30, today=date(2026, 6, 1))
+        m, inp = plan["_meta"], plan["_meta"]["inputs"]
+        self.assertEqual(inp["taper_weeks"], 3)
+        self.assertGreaterEqual(inp["build_weeks"], 12)
+        self.assertGreater(m["peak_mi"], 30 * 1.5)                    # the full multiplier applies

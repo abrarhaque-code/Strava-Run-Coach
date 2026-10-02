@@ -39,6 +39,9 @@ MIN_HR_RUNS = 3            # runs with HR before observed max HR is trusted
 MAX_HR_AGREE_BPM = 5       # the top reading needs a second run this close
 EASY_BAND_HALF_WIDTH = 0.25  # min/mi either side of the observed easy pace
 EASY_PACE_DAYS = 90
+LONG_RUN_CAP_BELOW_EASY = 3   # bpm: long runs stay a touch easier than easy days
+LONG_RUN_SHARE_OF_WEEK = 0.25  # a run this share of weekly volume counts as long
+MIN_LONG_RUN_MI = 7
 _HERE = Path(__file__).resolve().parent
 
 # Order matters: "half marathon" must not read as a marathon.
@@ -294,6 +297,9 @@ def plan_config(profile: Optional[dict], zones: Optional[dict], cache_acts: list
         patch, znotes = wizard.zones_to_config_patch(zones)
         wizard._deep_merge(cfg, patch)
         notes += [f"zones: {n}" for n in znotes]
+        if (patch.get("athlete") or {}).get("easy_hr_cap"):
+            ath["long_run_hr_cap"] = int(ath["easy_hr_cap"]) - LONG_RUN_CAP_BELOW_EASY
+            notes.append(f"long_run_hr_cap {ath['long_run_hr_cap']}: {LONG_RUN_CAP_BELOW_EASY} under the easy cap")
     else:
         notes.append("zones: no zones.json in the inbox; HR caps and bands are the example defaults")
 
@@ -391,6 +397,10 @@ def plan_config(profile: Optional[dict], zones: Optional[dict], cache_acts: list
         cfg.setdefault("scenario", {})["entries"] = [base, base + 5, base + 10]
         notes.append(f"scenario entries {cfg['scenario']['entries']} mi/wk around your trailing "
                      f"{mpw:.0f} mi/wk")
+        long_min = max(MIN_LONG_RUN_MI, int(round(LONG_RUN_SHARE_OF_WEEK * mpw)))
+        cfg.setdefault("trends", {})["long_run_min_mi"] = long_min
+        notes.append(f"a run counts as long from {long_min} mi ({LONG_RUN_SHARE_OF_WEEK:.0%} of "
+                     f"your weekly volume, floor {MIN_LONG_RUN_MI})")
 
     tz = local_timezone()
     if tz:

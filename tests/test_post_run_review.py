@@ -404,6 +404,18 @@ class TestClassifySession(unittest.TestCase):
         self.assertEqual(prr.classify_session(short, easy_intent), ("EASY", "intent"))
         longish = {"distance": 9 * MI, "moving_time": 9 * 600, "average_heartrate": 140}
         self.assertEqual(prr.classify_session(longish, easy_intent), ("LONG RUN", "intent"))
+        mp_intent = {"segments": [{"kind": "easy", "placed": True, "miles": 4, "start_mi": 0, "end_mi": 4},
+                                  {"kind": "mp", "placed": True, "miles": 6, "start_mi": 4, "end_mi": 10}]}
+        self.assertEqual(prr.classify_session({"distance": 10 * MI, "moving_time": 6000}, mp_intent),
+                         ("LONG RUN", "intent"))
+        thr_intent = {"segments": [{"kind": "5k", "placed": False, "miles": 3}]}
+        self.assertEqual(prr.classify_session(longish, thr_intent), ("THRESHOLD", "intent"))
+        # 18 mi with 3 at half pace is a long run with a block in it, not a threshold session
+        long_block = {"distance": 18 * MI, "moving_time": 18 * 560}
+        half_intent = {"segments": [{"kind": "easy", "placed": True, "miles": 13, "start_mi": 0, "end_mi": 13},
+                                    {"kind": "half", "placed": True, "miles": 3, "start_mi": 13, "end_mi": 16},
+                                    {"kind": "easy", "placed": True, "miles": 2, "start_mi": 16, "end_mi": 18}]}
+        self.assertEqual(prr.classify_session(long_block, half_intent), ("LONG RUN", "intent"))
         self.assertEqual(prr.classify_session(short, None, plan_role="long"), ("LONG RUN", "plan"))
         self.assertEqual(prr.classify_session({**short, "average_heartrate": 140}, None), ("EASY", "hr_pace"))
 
@@ -422,7 +434,7 @@ class TestSegmentsFromDescription(unittest.TestCase):
 
     def test_declared_tempo_scores_against_the_config_band(self):
         r = self._review(self.SPEC)
-        self.assertEqual(r["classification"], "LONG RUN")       # 9 mi, stated intent
+        self.assertEqual(r["classification"], "TEMPO")          # the declared block is the session
         self.assertEqual(r["classification_source"], "intent")
         kinds = [lp["seg_kind"] for lp in r["laps"]["laps"]]
         self.assertEqual(kinds, ["easy"] * 3 + ["tempo"] * 4 + ["easy"] * 2)

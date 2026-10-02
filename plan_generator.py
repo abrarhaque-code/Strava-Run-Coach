@@ -161,17 +161,40 @@ def default_weeks(race_date: date, preset: dict, today: Optional[date] = None) -
     return max(MIN_WEEKS, min(int(preset["block_weeks"]), weeks_left))
 
 
+def _recent_longest_mi(today: date, days: int = 28) -> float:
+    """The longest real run in the last `days` days (0 when none)."""
+    try:
+        from enrichment import is_real_run
+        from metrics import load_activities
+        since = today - timedelta(days=days)
+        best = 0.0
+        for a in load_activities(activity_type="Run"):
+            if not is_real_run(a):
+                continue
+            try:
+                d = date.fromisoformat(str(a.get("start_date_local") or a.get("start_date"))[:10])
+            except (TypeError, ValueError):
+                continue
+            if since < d <= today:
+                best = max(best, (a.get("distance") or 0) / 1609.34)
+        return round(best, 1)
+    except Exception:
+        return 0.0
+
+
 def entry_from_data(today: Optional[date] = None) -> dict:
     """Entry mileage from the last 4 weeks of real runs: rounded UP to the
-    nearest 5, floor 10, with the feasibility read alongside."""
-    inp = scenario.derive_inputs(today or date.today())
+    nearest 5, floor 10, with the recent longest run alongside."""
+    today = today or date.today()
+    inp = scenario.derive_inputs(today)
     run_mpw = float(inp.get("run_mpw") or 0)
     entry = max(10.0, math.ceil(run_mpw / 5.0) * 5.0) if run_mpw > 0 else 10.0
-    return {"entry_mi": entry, "run_mpw": run_mpw, "activities_loaded": inp.get("activities_loaded", 0)}
+    return {"entry_mi": entry, "run_mpw": run_mpw, "activities_loaded": inp.get("activities_loaded", 0),
+            "long_run_recent_mi": _recent_longest_mi(today)}
 
 
 def generate_plan_dict(entry_mi: float, weeks: int = None, today: date = None,
-                       prefs: Optional[dict] = None) -> dict:
+                       prefs: Optional[dict] = None, long_run_entry_mi: Optional[float] = None) -> dict:
     today = today or date.today()
     race = config.active_race(today)
     race_date = date.fromisoformat(race["date"])
@@ -183,11 +206,27 @@ def generate_plan_dict(entry_mi: float, weeks: int = None, today: date = None,
 
     c = scenario.cfg()
     c["block_weeks"] = int(weeks or layout.get("block_weeks") or default_weeks(race_date, preset, today))
-    c["taper_weeks"] = int(layout.get("taper_weeks") or min(preset["taper_weeks"], max(1, c["block_weeks"] // 4)))
-    c["long_run_cap_mi"] = float(layout.get("max_long_run_mi") or preset["long_run_cap_mi"])
-    c["long_run_frac"] = preset["long_run_frac"]
+    # The taper keeps its length as the block shrinks (a marathon five weeks out
+    # still tapers for three), and the build is whatever is left.
+    c["taper_weeks"] = int(layout.get("taper_weeks")
+                           or min(preset["taper_weeks"], max(1, c["block_weeks"] - 2)))
+    build_weeks = max(1, c["block_weeks"] - c["taper_weeks"])
+    full_build = max(1, int(preset["block_weeks"]) - int(preset["taper_weeks"]))
+    build_frac = min(1.0, build_weeks / full_build)
+    # A short build cannot carry the full peak: scale the multiplier by the share
+    # of the preset's build weeks actually available (two of thirteen -> ~1.14x).
     if layout.get("peak_multiplier"):
         c["peak_multiplier"] = float(layout["peak_multiplier"])
+    else:
+        c["peak_multiplier"] = 1.0 + (float(c["peak_multiplier"]) - 1.0) * build_frac
+    long_entry = float(long_run_entry_mi or 0) or max(4.0, entry_mi * 0.30)
+    cap = float(layout.get("max_long_run_mi") or preset["long_run_cap_mi"])
+    if not layout.get("max_long_run_mi"):
+        # The long run only grows as far as the available build allows.
+        cap = min(cap, max(long_entry, long_entry + (cap - long_entry) * build_frac))
+    c["long_run_cap_mi"] = cap
+    c["long_run_frac"] = preset["long_run_frac"]
+    c["long_run_entry_mi"] = long_entry
     weeks = c["block_weeks"]
     mp_pace = float(race["goal_pace_min_per_mi"])
 
@@ -245,6 +284,8 @@ def generate_plan_dict(entry_mi: float, weeks: int = None, today: date = None,
                 "quality_day": layout["quality_day"], "rest_days": layout["rest_days"],
                 "lift_days": layout["lift_days"], "quality": layout["quality"],
                 "max_long_run_mi": c["long_run_cap_mi"],
+                "long_run_entry_mi": round(long_entry, 1),
+                "build_weeks": build_weeks, "taper_weeks": c["taper_weeks"],
                 "long_run_time_cap_min": layout.get("long_run_time_cap_min"),
             },
             "compliance_thresholds": dict(__import__("marathon_plan").COMPLIANCE_DEFAULTS),
@@ -335,10 +376,12 @@ def _decision_points(weeks_out: list, ramp: dict, race: dict, layout: dict, dist
 # ---------------------------------------------------------------------------
 
 def write_plan(entry_mi: float, weeks: int = None, path: Path = None,
-               prefs: Optional[dict] = None, today: date = None) -> Path:
+               prefs: Optional[dict] = None, today: date = None,
+               long_run_entry_mi: Optional[float] = None) -> Path:
     """Generate, validate and write the plan for the active race. Returns the path."""
     import marathon_plan
-    plan = generate_plan_dict(entry_mi, weeks, today=today, prefs=prefs)
+    plan = generate_plan_dict(entry_mi, weeks, today=today, prefs=prefs,
+                              long_run_entry_mi=long_run_entry_mi)
     marathon_plan._validate(plan)
     if path is None:
         path = config.plan_path(config.active_race(today))
@@ -352,7 +395,8 @@ def write_plan(entry_mi: float, weeks: int = None, path: Path = None,
 def generate_from_data(prefs: Optional[dict] = None, weeks: int = None, today: date = None) -> tuple:
     """Entry mileage from the cache, then write_plan. -> (path, entry_info)."""
     info = entry_from_data(today)
-    return write_plan(info["entry_mi"], weeks, prefs=prefs, today=today), info
+    return write_plan(info["entry_mi"], weeks, prefs=prefs, today=today,
+                      long_run_entry_mi=info.get("long_run_recent_mi") or None), info
 
 
 # ---------------------------------------------------------------------------

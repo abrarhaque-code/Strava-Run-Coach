@@ -46,6 +46,10 @@ The repo ships agent skills in `.claude/skills/` and a Claude Code plugin
 manifest in `.claude-plugin/`. If you change either, keep
 `tests/test_packaging.py` green (it checks manifests parse, skills carry
 frontmatter descriptions, and skills only reference `coach.py` commands that
-exist) and run `claude plugin validate . --strict` locally before tagging a
+exist, every skill points at `docs/COACHING.md`, the plugin version matches
+the changelog) and run `claude plugin validate .` locally before tagging a
 release. Skills must describe the real CLI — when you add or rename a
-sub-command, update the affected SKILL.md.
+sub-command, update the affected SKILL.md and the `coach.py` docstring.
+
+The repo is `ruff check .` clean; ruff is not required to run the tests, but
+please keep it that way if you have it.

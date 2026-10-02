@@ -1,30 +1,38 @@
 # strava-run-coach
 
-> Stdlib-only Python running coach: Strava history in (bulk-export CSV, REST
-> sync, or Strava MCP JSON) -> Daniels VDOT race prediction, CTL/ATL/TSB
-> fitness tracking, periodized plan generation with .ics export, plan
-> reconciliation, long-horizon trends, and a self-contained HTML dashboard.
-> `coach.py` is the single entry point; no pip installs, ever.
+> Stdlib-only Python running coach: Strava history in (Strava MCP JSON, REST
+> sync, or the bulk-export CSV) -> Daniels VDOT race prediction, CTL/ATL/TSB
+> fitness tracking, a graded debrief of every run, plans built around the
+> athlete's race and week, weekly check-ins, long-horizon trends, .ics export,
+> and a self-contained HTML dashboard. `coach.py` is the single entry point;
+> no pip installs, ever.
 
-Key facts: all athlete numbers live in `config.json` (falls back to
-`config.example.json`); `enrichment.is_real_run()` is the single filter for
-"is this a real run"; Strava MCP list summaries carry no heart rate — merge
-`get_activity_performance` payloads via `--performance`; never commit
-anything under `data/`.
+Key facts: all athlete numbers live in `config.json` (`coach.py init
+--from-mcp` writes it from the Strava profile, zones and history; falls back to
+`config.example.json`); state lives at `config.home()` (code dir, the plugin
+data dir, or `STRAVA_COACH_HOME`); `enrichment.is_real_run()` is the single
+filter for "is this a real run"; the engine stays in miles and metres and
+`units.py` renders `athlete.units`; Strava MCP list summaries carry no heart
+rate, so `get_activity_performance` (HR + laps) and `get_activity_streams`
+payloads are saved under `data/mcp/perf/` and `data/mcp/streams/` and merged
+by `coach.py ingest`; `coach.py status --json` says what is still missing;
+never commit anything under `data/`.
 
 ## Docs
 
-- [README](README.md): quickstart, command table, Use-with-Claude setup
+- [README](README.md): quickstart, command table, Use-with-Claude flow
+- [Coaching](docs/COACHING.md): how the coach talks; verify before escalating
 - [Methodology](docs/METHODOLOGY.md): the named, cited models (VDOT, TSS,
-  CTL/ATL/TSB, two-stream load, ACWR caveats, goal-probability heuristic)
-- [Architecture](docs/ARCHITECTURE.md): module map + data interface contract
+  CTL/ATL/TSB, two-stream load, pace-matched decoupling, the grade, ACWR caveats)
+- [Architecture](docs/ARCHITECTURE.md): module map, state home, data contracts
 - [CLAUDE.md](CLAUDE.md): working notes for AI agents (commands, hard rules)
 - [Contributing](CONTRIBUTING.md): tests, stdlib-only rule, style
 
 ## Agent surface
 
 - [strava-coach-analyze skill](.claude/skills/strava-coach-analyze/SKILL.md):
-  MCP pagination + ingestion recipe
+  the entry point: MCP pull + status-driven ingest + one-question setup + report
+- [review-run skill](.claude/skills/review-run/SKILL.md): debrief one run
 - [weekly-review skill](.claude/skills/weekly-review/SKILL.md)
 - [race-forecast skill](.claude/skills/race-forecast/SKILL.md)
 - [build-plan skill](.claude/skills/build-plan/SKILL.md)
@@ -34,9 +42,15 @@ anything under `data/`.
 
 ## Code entry points
 
-- [coach.py](coach.py): CLI router (full/brief/forecast/fitness/trends/week/
-  scenario/plan/analyze/reconcile/dashboard/init)
-- [config.example.json](config.example.json): every tunable, with the Yves
-  Klein Blue dashboard theme tokens
-- [mcp_adapter.py](mcp_adapter.py): Strava MCP JSON -> cache (+ performance
-  merge, CSV rebuild)
+- [coach.py](coach.py): CLI router (full/brief/review/fitness/forecast/metrics/
+  trends/week/scenario/plan/note/status/ingest/analyze/reconcile/dashboard/
+  sync/init)
+- [config.example.json](config.example.json): every tunable, including the
+  `plan` block and the dashboard theme tokens
+- [status.py](status.py) / [onboarding.py](onboarding.py): what the coach has;
+  config from the Strava MCP
+- [mcp_adapter.py](mcp_adapter.py): Strava MCP JSON -> cache (list + performance
+  + streams merge, `fetch_plan`)
+- [post_run_review.py](post_run_review.py): `review()` dict + `render()`
+- [plan_generator.py](plan_generator.py) / [plan_layout.py](plan_layout.py):
+  the plan and its 7-day layout

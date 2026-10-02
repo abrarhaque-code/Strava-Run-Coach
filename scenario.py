@@ -135,7 +135,10 @@ def build_ramp(entry_mi: float, c: dict = None) -> dict:
     long_run_peak = min(c["long_run_cap_mi"], actual_peak * c["long_run_frac"])
 
     weeks_out = []
-    prev_long = max(4.0, entry_mi * 0.30)
+    # The long run grows from what the athlete already runs (`long_run_entry_mi`
+    # when the caller knows it), else from a share of the entry volume.
+    prev_long = float(c.get("long_run_entry_mi") or 0) or max(4.0, entry_mi * 0.30)
+    prev_long = min(prev_long, long_run_peak) if long_run_peak > 0 else prev_long
     for i, t in enumerate(targets, start=1):
         phase = _phase_for(i, build_weeks, taper)
         if phase == "taper":

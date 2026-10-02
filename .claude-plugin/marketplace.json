@@ -9,9 +9,15 @@
     {
       "name": "strava-run-coach",
       "source": "./",
-      "description": "AI-native running coach: Strava MCP ingestion, Daniels VDOT race forecasts, CTL/ATL/TSB fitness tracking, periodized plan generation with calendar export, and weekly plan-compliance reviews. Zero dependencies - the whole engine is Python stdlib.",
+      "description": "AI-native running coach over the Strava MCP: zero-question setup from your Strava profile and zones, graded run reviews, plans built around your race and your week, weekly check-ins, Daniels VDOT forecasts, CTL/ATL/TSB fitness. Zero dependencies - the whole engine is Python stdlib.",
       "category": "productivity",
-      "tags": ["running", "strava", "coaching", "fitness", "training"]
+      "tags": [
+        "running",
+        "strava",
+        "coaching",
+        "fitness",
+        "training"
+      ]
     }
   ]
 }
