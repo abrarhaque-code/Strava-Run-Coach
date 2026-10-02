@@ -80,6 +80,10 @@ connected and the coach sets itself up, asks one question, and coaches.
   collapsed at the bottom); the terminal and Strava API material moved to
   `docs/TERMINAL.md`. The plugin manifest now carries the Strava MCP server, so
   a marketplace install brings the connector along.
+- The dashboard theme follows the same design system as the README images:
+  International Klein Blue as the ink on gallery paper, the blue scale for the
+  heatmap, and an optional `theme.serif_font` (Instrument Serif in the example
+  config) for the race title. A `config.json` without the key renders as before.
 
 ### Removed
 - First-half-vs-second-half "cardiac drift" in the review (it measured how a
