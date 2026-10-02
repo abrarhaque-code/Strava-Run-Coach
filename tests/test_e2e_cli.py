@@ -4,6 +4,7 @@ and every STRAVA_* variable stripped (no network, ever)."""
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,10 +65,15 @@ class TestFreshCloneDemo(unittest.TestCase):
         self.assertEqual([v["dim"] for v in doc["verdicts"]][:1], ["plan"])
 
     def test_05_week_and_brief(self):
+        weekly = self.home / "plan_output" / "weekly"
+        before = {f.name: f.stat().st_mtime_ns for f in weekly.glob("*.md")} if weekly.exists() else {}
         r = run_coach(self.home, "week", "--no-write")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("7-DAY LAYOUT", r.stdout)
         self.assertIn("4. CHECKPOINT", r.stdout)
+        self.assertNotIn("Report written", r.stdout)   # --no-write reached weekly_check
+        after = {f.name: f.stat().st_mtime_ns for f in weekly.glob("*.md")} if weekly.exists() else {}
+        self.assertEqual(after, before)   # the full report wrote one earlier; this run touched nothing
         r = run_coach(self.home, "brief")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("TODAY", r.stdout)
@@ -96,8 +102,10 @@ class TestFreshCloneDemo(unittest.TestCase):
                 r = run_coach(self.home, *cmd)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn("km", r.stdout, cmd)
-                self.assertNotIn("/mi", r.stdout, cmd)
-                self.assertNotIn("mpw", r.stdout, cmd)
+                # Whole labels only: a temp-directory name like /tmp/tmpwpflrof1
+                # once matched a bare "mpw" and failed CI.
+                self.assertIsNone(re.search(r"/mi\b", r.stdout), cmd)
+                self.assertIsNone(re.search(r"\bmpw\b", r.stdout), cmd)
         finally:
             cfg["athlete"]["units"] = "mi"
             cfg_path.write_text(json.dumps(cfg))

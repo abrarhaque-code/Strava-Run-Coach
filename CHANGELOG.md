@@ -80,6 +80,8 @@ connected and the coach sets itself up, asks one question, and coaches.
   collapsed at the bottom); the terminal and Strava API material moved to
   `docs/TERMINAL.md`. The plugin manifest now carries the Strava MCP server, so
   a marketplace install brings the connector along.
+- `coach.py week` and `coach.py brief` pass their flags through; `--no-write`,
+  `--date` and `--save` were silently dropped by the dispatcher.
 - The dashboard theme follows the same design system as the README images:
   International Klein Blue as the ink on gallery paper, the blue scale for the
   heatmap, and an optional `theme.serif_font` (Instrument Serif in the example
