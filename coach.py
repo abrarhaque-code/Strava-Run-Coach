@@ -86,7 +86,7 @@ def full_report(save_brief: bool = False):
         # user who intends to sync real data shouldn't get fake miles.
         print("No training data yet.")
         print("  Demo with sample data:  python3 coach.py init --sample")
-        print("  Or connect Strava:      see README 'Connect your Strava'")
+        print('  Or connect Strava:      say "coach me" to Claude, or see docs/TERMINAL.md')
         return
 
     _section("DAILY BRIEF")

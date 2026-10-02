@@ -8,5 +8,5 @@
 - [ ] **Stdlib only** — no new third-party imports (hard rule; see CONTRIBUTING.md)
 - [ ] Athlete numbers read through `config.py`, not hardcoded
 - [ ] New run-metric consumers filter through `enrichment.is_real_run()`
-- [ ] Docs updated where behavior changed (README table, ARCHITECTURE, METHODOLOGY, skills)
+- [ ] Docs updated where behavior changed (README, docs/TERMINAL.md, ARCHITECTURE, METHODOLOGY, skills)
 - [ ] No personal activity data in code, fixtures, or docs

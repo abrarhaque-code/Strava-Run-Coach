@@ -40,6 +40,14 @@ class TestPluginManifest(unittest.TestCase):
         changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn(f"## [{version}]", changelog)
 
+    def test_plugin_declares_the_same_strava_server(self):
+        plugin = _load(".claude-plugin/plugin.json")
+        mcp = _load(".mcp.json")
+        self.assertEqual(plugin.get("mcpServers"), mcp["mcpServers"])
+        blob = json.dumps(plugin).lower()
+        for word in ("token", "secret", "password"):
+            self.assertNotIn(word, blob)
+
     def test_mcp_json_has_strava_server(self):
         cfg = _load(".mcp.json")
         strava = cfg["mcpServers"]["strava"]
@@ -101,6 +109,36 @@ class TestSkills(unittest.TestCase):
             for cmd in re.findall(r"coach\.py (\w+)", text):
                 self.assertIn(f"coach.py {cmd}", coach_doc,
                               f"{d.name} references unknown command '{cmd}'")
+
+
+
+
+class TestReadme(unittest.TestCase):
+    """The README is the first thing a runner sees: its links must resolve and
+    its top half must read as made for runners, not developers."""
+
+    def _text(self):
+        return (_ROOT / "README.md").read_text(encoding="utf-8")
+
+    def test_relative_links_and_images_resolve(self):
+        text = self._text()
+        targets = re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", text) + re.findall(r'src="([^"]+)"', text)
+        self.assertTrue(targets)
+        for t in targets:
+            if t.startswith(("http://", "https://", "mailto:")):
+                continue
+            self.assertTrue((_ROOT / t).exists(), f"README links to a missing path: {t}")
+
+    def test_no_developer_jargon_above_the_fold(self):
+        fold = self._text().split("<details>", 1)[0]
+        for word in ("stdlib", "MCP", "subprocess", "VDOT", "CTL", "OAuth", "gitignored", "clone"):
+            self.assertNotIn(word, fold, f"{word!r} appears in the README above the fold")
+        self.assertIn("coach me", fold)
+        self.assertIn("docs/img/hero-conversation.png", fold)
+
+    def test_terminal_guide_exists_and_is_linked(self):
+        self.assertTrue((_ROOT / "docs" / "TERMINAL.md").exists())
+        self.assertIn("docs/TERMINAL.md", self._text())
 
 
 if __name__ == "__main__":
