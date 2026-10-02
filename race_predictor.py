@@ -7,22 +7,16 @@ and estimates the probability of hitting the goal time.
 
 Stdlib only.
 """
-import glob
-import json
 import math
-import os
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 import config
+import units
 
 # ---- Constants ----
 HALF_M = 21097.5
-ACTIVITIES_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "data",
-    "strava_cache",
-    "activities",
-)
+ACTIVITIES_DIR = str(config.ACTIVITIES_DIR)
 MI_PER_M = 1 / 1609.34
 
 
@@ -62,20 +56,22 @@ def predict_race_time(vdot: float, distance_m: float) -> int:
 
 
 # ---- Activity loading ----
-def load_activities() -> list:
+def load_activities(activities: list = None) -> list:
+    """Flattened rows for the predictor: {id, name, date, distance_m,
+    distance_mi, time_sec, pace_min_mi, avg_hr, max_hr, is_intervals}.
+
+    Reads metrics.load_activities (the one cache reader) unless a pre-loaded
+    list is passed, so callers that already hold the runs (the dashboard) do
+    not load the cache twice. Real runs only: a VDOT anchored on a bike
+    session logged as a Run would poison every prediction downstream.
+    """
+    if activities is None:
+        from metrics import load_activities as _load
+        activities = _load(activity_type="Run")
+    from enrichment import is_real_run
     out = []
-    for fp in glob.glob(os.path.join(ACTIVITIES_DIR, "*.json")):
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                a = json.load(f)
-        except Exception:
-            continue
-        if a.get("type") != "Run":
-            continue
-        # Real runs only: a VDOT anchored on a bike session logged as a Run
-        # (or a soft-deleted entry) would poison every prediction downstream.
-        from enrichment import is_real_run
-        if not is_real_run(a):
+    for a in activities:
+        if a.get("type") != "Run" or not is_real_run(a):
             continue
         dist_m = a.get("distance", 0) or 0
         time_s = a.get("moving_time", 0) or 0
@@ -84,7 +80,10 @@ def load_activities() -> list:
         date_str = a.get("start_date_local") or a.get("start_date")
         if not date_str:
             continue
-        dt = datetime.fromisoformat(date_str.replace("Z", ""))
+        try:
+            dt = datetime.fromisoformat(str(date_str).replace("Z", ""))
+        except ValueError:
+            continue
         dist_mi = dist_m * MI_PER_M
         out.append(
             {
@@ -97,9 +96,21 @@ def load_activities() -> list:
                 "pace_min_mi": (time_s / 60.0) / dist_mi if dist_mi > 0 else 0,
                 "avg_hr": a.get("average_heartrate"),
                 "max_hr": a.get("max_heartrate"),
+                "is_intervals": _is_intervals(a),
             }
         )
     return sorted(out, key=lambda x: x["date"])
+
+
+def _is_intervals(a: dict) -> bool:
+    """A rep session read as one continuous run inflates VDOT (the reps are
+    fast, the recoveries are not counted as moving). Keep them out of the
+    whole-run scan; their reps are scored by the review instead."""
+    try:
+        from enrichment import looks_like_intervals
+        return bool(looks_like_intervals(a))
+    except Exception:
+        return False
 
 
 # Race results stay a valid fitness anchor much longer than training-run
@@ -129,7 +140,8 @@ def current_fitness_vdot(activities: list, today: datetime = None) -> tuple:
     candidates = []
 
     # 1. Whole-run VDOT scan
-    recent_whole = [a for a in activities if a["date"] >= cutoff and a["distance_m"] >= 3000]
+    recent_whole = [a for a in activities if a["date"] >= cutoff and a["distance_m"] >= 3000
+                    and not a.get("is_intervals")]
     for a in recent_whole:
         v = compute_vdot(a["distance_m"], a["time_sec"])
         if v > 0:
@@ -197,13 +209,7 @@ def current_fitness_vdot(activities: list, today: datetime = None) -> tuple:
 def _pace_str(time_sec: float, distance_m: float) -> str:
     if not distance_m:
         return ""
-    pace_sec = time_sec / (distance_m / 1609.34)
-    m = int(pace_sec // 60)
-    s = int(round(pace_sec - m * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}"
+    return units.fmt_pace(sec_per_m=time_sec / distance_m, label=False)
 
 
 # ---- Trend & volume ----
@@ -275,24 +281,13 @@ def fmt_time(sec: int) -> str:
 
 
 def fmt_pace_per_mi(total_sec: int, distance_m: float) -> str:
-    miles = distance_m * MI_PER_M
-    sec_per_mi = total_sec / miles
-    m = int(sec_per_mi // 60)
-    s = int(round(sec_per_mi - m * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}/mi"
+    """Pace with its unit label ('9:05/mi' or '5:39/km')."""
+    return units.fmt_pace(sec_per_m=total_sec / distance_m)
 
 
 def fmt_pace_min_mi(pace_min_mi: float) -> str:
-    """Format a pace given in minutes-per-mile (float) as M:SS."""
-    m = int(pace_min_mi)
-    s = int(round((pace_min_mi - m) * 60))
-    if s == 60:
-        m += 1
-        s = 0
-    return f"{m}:{s:02d}"
+    """Format a pace given in minutes-per-mile (float) as M:SS in the user's unit."""
+    return units.fmt_pace(pace_min_mi, label=False)
 
 
 def arrow(recent_val, prior_val, higher_is_better=True):
@@ -309,6 +304,59 @@ def arrow(recent_val, prior_val, higher_is_better=True):
 
 
 # ---- Report ----
+def _vol(mi_per_wk: float) -> str:
+    return f"{units.mi_to_user(mi_per_wk):.0f} {units.volume_label()}"
+
+
+def _plan_week(today: Optional[date] = None) -> Optional[dict]:
+    try:
+        import marathon_plan as mp
+        return mp.current_week(today) if mp.has_plan() else None
+    except Exception:
+        return None
+
+
+def _band(zone: dict) -> Optional[str]:
+    try:
+        return units.fmt_pace_range(float(zone["ceiling"]), float(zone["floor"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _tips(gap: float, vol_14_mi: float, race: dict, week: Optional[dict] = None) -> list:
+    """What to do about the gap, in the athlete's numbers: the plan week's
+    long run and volume when a plan exists, the config zones otherwise."""
+    pz = config.pace_zones()
+    days = int(config.plan_cfg().get("days_per_week") or 4)
+    long_mi = float((week or {}).get("long_run_target") or 0)
+    if not long_mi:
+        long_mi = max(float(config.long_run_min_mi()),
+                      round(0.5 * float(race.get("distance_mi") or 13.1)))
+    tempo_band = _band(pz.get("tempo") or {}) or "tempo pace"
+    easy_band = _band(pz.get("easy") or {}) or "easy pace"
+    goal_pace = units.fmt_pace(float(race.get("goal_pace_min_per_mi") or 0))
+    rep = "1 mi" if units.unit() == "mi" else "1 km"
+    lo, hi = units.mi_to_user(3), units.mi_to_user(4)
+    tips = []
+    if gap < -1.5:
+        tips += [f"Hit at least one quality run with HR >= {config.threshold_hr()} in the next 10 days",
+                 f"Long run progression: aim for {units.fmt_dist(mi=long_mi)}+ this weekend",
+                 f"Maintain consistency: {days}+ runs/week through race week"]
+    elif gap < 0:
+        tips += [f"One tempo session ({lo:.0f}-{hi:.0f} {units.unit()} @ {tempo_band}) in the next 7 days",
+                 f"Long run: {units.fmt_dist(mi=long_mi)} at {easy_band}",
+                 f"Hold {days} runs/week, taper the last 5 days"]
+    else:
+        tips += ["Don't add stress; protect what you have",
+                 f"One race-pace tune-up: 3 x {rep} @ {goal_pace} with 90 s rest",
+                 "Taper the last 7-10 days, hydrate, sleep"]
+    light_mi = 0.6 * float(week["target_miles"]) if week and week.get("target_miles") else 12.0
+    if vol_14_mi < light_mi:
+        tips.append(f"Volume is light ({_vol(vol_14_mi)}); add one easy "
+                    f"{units.fmt_dist(mi=4, nd=0)} this week")
+    return tips
+
+
 def print_race_forecast():
     race = config.active_race()
     race_m = race["distance_mi"] * 1609.34
@@ -337,7 +385,7 @@ def print_race_forecast():
     print("=" * 60)
     print()
     print(f"Days to race: {days_to}")
-    print(f"Goal: {race['goal_time']} ({fmt_pace_min_mi(goal_pace)}/mi)")
+    print(f"Goal: {race['goal_time']} ({units.fmt_pace(goal_pace)})")
     print()
     print(f"Current fitness VDOT: {current_vdot:.1f}")
     if isinstance(src, dict):
@@ -345,21 +393,18 @@ def print_race_forecast():
         date_s = src.get("date", "")
         pace_s = src.get("pace_str", "")
         name = src.get("name", "")
-        dist_s = ""
-        if src.get("distance_mi"):
-            dist_s = f"{src['distance_mi']:.1f}mi "
         line = f"  Source: {note}"
-        if dist_s:
-            line += f" ({dist_s.strip()})"
+        if src.get("distance_mi"):
+            line += f" ({units.fmt_dist(mi=src['distance_mi'])})"
         if date_s:
             line += f" on {date_s}"
         if pace_s:
-            line += f" @ {pace_s}/mi"
+            line += f" @ {pace_s}{units.pace_label()}"
         if name:
             line += f" [{name}]"
         print(line)
     else:
-        print(f"  Source: insufficient recent data")
+        print("  Source: insufficient recent data")
     print()
     print(f"Goal VDOT ({race['goal_time']}): {goal_vdot:.1f}")
     print(f"Gap: {current_vdot - goal_vdot:+.1f} VDOT")
@@ -374,20 +419,8 @@ def print_race_forecast():
     print()
     print("What you need to do:")
     gap = current_vdot - goal_vdot
-    if gap < -1.5:
-        print("- Hit at least one quality run with HR >= 165 in next 10 days")
-        print("- Long run progression: aim for 11+ mi this weekend")
-        print("- Maintain consistency: 4+ runs/week through race week")
-    elif gap < 0:
-        print("- One tempo session (3-4mi @ 8:50-9:00) in next 7 days")
-        print("- Long run: 11-12 mi at 10:00-10:30")
-        print("- Hold 4 runs/week, taper last 5 days")
-    else:
-        print("- Don't add stress; protect what you have")
-        print("- One race-pace tune-up: 3 x 1mi @ 9:00 with 90s rest")
-        print("- Taper last 7-10 days, hydrate, sleep")
-    if vol_14 < 12:
-        print(f"- Volume is light ({vol_14:.0f}mi/wk); add 1 easy 4mi this week")
+    for tip in _tips(gap, vol_14, race, _plan_week()):
+        print(f"- {tip}")
     print()
     print("Trend (last 14 days vs prior 30):")
     r = trend["recent"]
@@ -395,12 +428,9 @@ def print_race_forecast():
     vol_arrow = arrow(r["vol_per_wk"], p["vol_per_wk"])
     vdot_arrow = arrow(r["best_vdot"], p["best_vdot"])
     long_arrow = arrow(r["long"], p["long"])
-    print(
-        f"  Volume:   {vol_arrow} ({r['vol_per_wk']:.0f}mi/wk vs "
-        f"{p['vol_per_wk']:.0f}mi/wk)"
-    )
+    print(f"  Volume:   {vol_arrow} ({_vol(r['vol_per_wk'])} vs {_vol(p['vol_per_wk'])})")
     print(f"  VDOT:     {vdot_arrow} ({r['best_vdot']:.1f} vs {p['best_vdot']:.1f})")
-    print(f"  Long run: {long_arrow} ({r['long']:.1f}mi vs {p['long']:.1f}mi peak)")
+    print(f"  Long run: {long_arrow} ({units.fmt_dist(mi=r['long'])} vs {units.fmt_dist(mi=p['long'])} peak)")
 
 
 if __name__ == "__main__":

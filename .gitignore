@@ -25,6 +25,7 @@ plan_output/
 data/*.generated.json
 data/mcp_activities.json
 data/mcp_*.json
+data/mcp/
 
 # Strava export ZIPs (if dropped here)
 export_*.zip

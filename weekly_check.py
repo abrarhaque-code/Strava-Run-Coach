@@ -1,524 +1,436 @@
-"""Weekly coaching check-in: compare actual training vs plan, generate coaching output."""
+"""Weekly check-in: last week against the plan, this week's sessions, how the
+runs went, the next checkpoint, and where fitness sits.
+
+    python3 coach.py week                     # today; prints and writes the report
+    python3 coach.py week --date 2026-08-31   # a frozen date (tests, backfill)
+    python3 coach.py week --no-write          # print only
+    python3 coach.py week --no-reconcile      # actuals already reconciled this run
+
+Reconciled actuals are persisted first (reconcile.reconcile is the one write
+path), then the report is printed and written to plan_output/weekly/YYYY-Wnn.md.
+Exit code 3 when reconcile raised (the report is still printed and written).
+Without a plan the check-in still shows the last 7 days of runs and fitness.
+"""
 
 import sys
-from datetime import date, datetime, timedelta
-from typing import List, Optional
+import textwrap
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Optional
 
 import config
-from models import (
-    RunActivity, StrengthSession, WeekSummary, PlannedWeek, PlannedWorkout,
-    TrainingPlan, PaceZones,
-)
-from analysis import (
-    load_activities, weekly_summaries, compute_actr, fmt_pace,
-    race_pace_readiness, polarization_stats,
-)
+import marathon_plan as mp
+import metrics
+import plan_layout
+import plan_tracker
+import units
 
-# ---------------------------------------------------------------------------
-# 10-week plan (week 1 = Mon Apr 6 2026)
-# Phases: build (wk 1-5), sharpen (wk 6-8), taper (wk 9-10)
-# ---------------------------------------------------------------------------
-PLAN_START = date(2026, 4, 6)  # Monday of week 1
+REPORT_DIR = config.PLAN_OUTPUT_DIR / "weekly"
+RULE = "=" * 65
+BAR = "-" * 65
+RECENT_DAYS = 7
+MI_M = 1609.34
 
-PLAN_WEEKS: List[PlannedWeek] = [
-    PlannedWeek(
-        week_num=1, week_start=date(2026, 4, 6), phase="build",
-        target_miles=14, long_run_target_mi=6,
-        key_workout="4mi easy w/ 4x30s strides",
-        lift_sessions=2,
-        notes="Reestablish consistency. 4 runs minimum.",
-    ),
-    PlannedWeek(
-        week_num=2, week_start=date(2026, 4, 13), phase="build",
-        target_miles=17, long_run_target_mi=8,
-        key_workout="5mi w/ 2mi at tempo (9:00-9:10)",
-        lift_sessions=2,
-        notes="First long run at 8mi. Keep long run HR < 148.",
-    ),
-    PlannedWeek(
-        week_num=3, week_start=date(2026, 4, 20), phase="build",
-        target_miles=20, long_run_target_mi=9,
-        key_workout="6mi w/ 3mi at race pace (9:05)",
-        lift_sessions=2,
-        notes="Push weekly volume. 4 runs minimum.",
-    ),
-    PlannedWeek(
-        week_num=4, week_start=date(2026, 4, 27), phase="build",
-        target_miles=22, long_run_target_mi=10,
-        key_workout="7mi w/ 4mi at race pace",
-        lift_sessions=2,
-        notes="First double-digit long run. Big week.",
-    ),
-    PlannedWeek(
-        week_num=5, week_start=date(2026, 5, 4), phase="sharpen",
-        target_miles=20, long_run_target_mi=11,
-        key_workout="8mi w/ 5mi at race pace",
-        lift_sessions=1,
-        lift_notes="Reduce to 1 lift session. Lower body maintenance only.",
-        notes="Peak long run. Prove you can hold 9:05 for 5mi.",
-    ),
-    PlannedWeek(
-        week_num=6, week_start=date(2026, 5, 11), phase="taper",
-        target_miles=14, long_run_target_mi=6,
-        key_workout="4mi shakeout w/ 2mi at race pace",
-        lift_sessions=0,
-        lift_notes="No lifting race week.",
-        notes="RACE WEEK. Taper hard. Sleep > everything.",
-    ),
-]
+
+def _fmt_pct(x: float) -> str:
+    return f"{x * 100:.0f}%"
+
+
+def _fmt_hm(minutes) -> str:
+    total = int(round(float(minutes or 0)))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _dist(mi) -> str:
+    return units.fmt_dist(mi=float(mi or 0))
+
+
+def _wrap(text: str, indent: str = "  ", width: int = 78) -> list:
+    return textwrap.wrap(text, width=width, initial_indent=indent, subsequent_indent=indent + "  ")
+
+
+def _phase_name(phase_id: str) -> str:
+    try:
+        ph = mp.phase_by_id(phase_id)
+        return ph["name"] if ph else str(phase_id)
+    except Exception:
+        return str(phase_id)
+
+
+def _race(today: date, has_plan: bool) -> dict:
+    """Name, date and goal of the race the check-in counts down to."""
+    if has_plan:
+        try:
+            r = dict(mp.race_info())
+            if r.get("date"):
+                return r
+        except Exception:
+            pass
+    try:
+        return dict(config.active_race(today))
+    except Exception:
+        return {"name": "no race set", "date": None, "goal_time": None}
 
 
 # ---------------------------------------------------------------------------
-# Core functions
+# Sections
 # ---------------------------------------------------------------------------
 
-def get_current_week_num(race_date=None) -> int:
-    """Which week of the plan we are in (1-indexed). Returns 0 if before plan start."""
-    if race_date is None:
-        race_date = date.fromisoformat(config.active_race()['date'])
-    today = date.today()
-    if today < PLAN_START:
-        return 0
-    days_in = (today - PLAN_START).days
-    week_num = days_in // 7 + 1
-    return week_num
+def _last_week_section(lines: list, week_num: int, today: date, runs: list, state: dict) -> Optional[dict]:
+    c = plan_tracker.weekly_compliance(week_num, today=today, runs=runs)
+    if "error" in c:
+        return None
+
+    lines.append(BAR)
+    lines.append(f"  1. LAST WEEK (wk {c['week_num']}, {_phase_name(c['phase'])})")
+    lines.append(BAR)
+    lines.append("")
+
+    # A week reconcile flagged data_stale had no activity data loaded for it:
+    # the live numbers below would read zero and call a good week missed.
+    rec = (state.get("weeks_actuals") or {}).get(str(week_num)) or {}
+    if rec.get("data_stale"):
+        lines.append(f"  [DATA STALE] No activity data covering wk {week_num} was loaded this pass.")
+        lines.append("  Previous record shown; refresh your Strava data before trusting it.")
+        lines.append(f"  Recorded:       {_dist(rec.get('run_mi'))} of {_dist(c['target_miles'])}, "
+                     f"{rec.get('runs')} runs, long run {_dist(rec.get('long_run_mi'))}, "
+                     f"status {str(rec.get('status', '?')).upper()}")
+        lines.append("")
+        return c
+
+    lines.append(f"  Run volume:     {_dist(c['miles_actual'])} of {_dist(c['target_miles'])} "
+                 f"({_fmt_pct(c['miles_pct'])} of target)")
+    lines.append(f"  Runs:           {c['run_count']}")
+    lines.append(f"  Long run:       {_dist(c['long_run_actual'])} of {_dist(c['long_run_target'])} "
+                 f"({'hit' if c['long_run_hit'] else 'missed'})")
+    if c.get("bike_sessions"):
+        lines.append(f"  Cross-training: {c['bike_sessions']} session(s), {c['bike_min']:.0f} min "
+                     "(credited as load, never as run volume)")
+    lines.append(f"  Status:         {c['status'].upper()}")
+    lines.append("")
+
+    th = mp.compliance_thresholds()
+    short = float(c["target_miles"]) - float(c["miles_actual"])
+    if c["status"] == "complete":
+        lines.append("  Verdict: executed. Stacking weeks like this is what builds the race.")
+    elif c["status"] == "in_progress":
+        lines.append("  Verdict: the week is still open; the numbers above are partial.")
+    elif c["status"] == "upcoming":
+        lines.append("  Verdict: not started yet.")
+    elif c["miles_pct"] < th["missed_below_pct"]:
+        lines += _wrap(f"Verdict: missed ({_fmt_pct(c['miles_pct'])} of target). Plan rule: repeat these "
+                       "targets rather than advance. Two misses in a row slide the plan by a week. "
+                       "We adjust and move forward.")
+    elif c["miles_pct"] >= th["repeat_below_pct"] and not c["long_run_hit"]:
+        lines += _wrap(f"Verdict: the volume was there but the long run was not ({_dist(c['long_run_actual'])} "
+                       f"of {_dist(c['long_run_target'])}). The long run is the week's anchor; this week's "
+                       "long run matters more than the midweek miles.")
+    else:
+        lines += _wrap(f"Verdict: short by {_dist(short)}. Under {th['repeat_below_pct']:.0%} the week "
+                       "repeats rather than advances. Protect the long run and the key session first; "
+                       "easy miles fill in around them.")
+    lines.append("")
+    return c
 
 
-def _get_current_week_start() -> date:
-    """Monday of the current ISO week."""
-    today = date.today()
-    return today - timedelta(days=today.weekday())
+def _this_week_section(lines: list, week: dict, today: date, state: dict) -> None:
+    lines.append(BAR)
+    lines.append(f"  2. THIS WEEK (wk {week['week_num']} of {mp.total_weeks()}, {_phase_name(week['phase'])})")
+    lines.append(BAR)
+    lines.append("")
+    head = f"  Target: {_dist(week['target_miles'])}  |  Long run: {_dist(week['long_run_target'])}"
+    if week.get("long_run_time_cap_min"):
+        head += f" (clock cap {_fmt_hm(week['long_run_time_cap_min'])})"
+    lines.append(head)
+    if week.get("key_workout"):
+        lines += textwrap.wrap(f"Key workout: {week['key_workout']}", width=78,
+                               initial_indent="  ", subsequent_indent="               ")
+    if week.get("notes"):
+        lines += textwrap.wrap(f"Notes: {week['notes']}", width=78,
+                               initial_indent="  ", subsequent_indent="         ")
+
+    standing = mp.standing_notes(today, state)
+    sessions, paces = [], {}
+    try:
+        plan = mp.load_plan()
+        paces = plan.get("paces") or {}
+        sessions = plan_layout.apply_notes(plan_layout.sessions_for_week(week, plan), standing)
+    except Exception:
+        sessions = []
+    if sessions:
+        lines.append("")
+        lines.append("  7-DAY LAYOUT:")
+        for day in sessions:
+            try:
+                d = date.fromisoformat(day["date"])
+                label = d.strftime("%a %b %d")
+            except (KeyError, ValueError, TypeError):
+                d, label = None, str(day.get("dow", "")).title()
+            mark = ">" if d == today else " "
+            lines.append(f"  {mark} {label}:  {plan_layout.format_session(day, paces)}")
+
+    week_notes = [n for n in mp.notes_for_week(week["week_num"], state) if not n.get("until")]
+    general = [n for n in mp.general_notes(state) if not n.get("until")]
+    if standing:
+        lines.append("")
+        lines.append("  Standing notes (they shape the layout above):")
+        for n in standing:
+            lines.append(f"    - {n['text']} (until {n['until']})")
+    if week_notes or general:
+        lines.append("")
+        lines.append("  Logged this week:")
+        for n in week_notes:
+            lines.append(f"    - {mp.format_note(n)}")
+        for n in general:
+            lines.append(f"    - (general) {mp.format_note(n)}")
+    lines.append("")
 
 
-def _get_plan_week(week_num: int) -> Optional[PlannedWeek]:
-    """Get the PlannedWeek for a given week number, or None if out of range."""
-    for pw in PLAN_WEEKS:
-        if pw.week_num == week_num:
-            return pw
+def _driver(verdicts: list) -> Optional[str]:
+    """The one verdict that decided the grade: the first miss, else the first watch."""
+    import post_run_review as prr
+    for want in ("miss", "watch"):
+        for v in verdicts:
+            if v["dim"] in prr.SCORED_DIMS and v["verdict"] == want:
+                return f"{v['dim']}: {prr.first_sentence(v['line'])}"
     return None
 
 
-def _summarize_week(runs: List[RunActivity], strength: List[StrengthSession],
-                    week_start: date) -> WeekSummary:
-    """Build a WeekSummary for one specific week."""
-    week_end = week_start + timedelta(days=7)
-    week_runs = [r for r in runs if week_start <= r.date.date() < week_end]
-    week_str = [s for s in strength if week_start <= s.date.date() < week_end]
-
-    if not week_runs:
-        return WeekSummary(
-            week_start=week_start,
-            strength_sessions=len(week_str),
-            runs=[],
-        )
-
-    total_mi = sum(r.distance_mi for r in week_runs)
-    longest = max(r.distance_mi for r in week_runs)
-    paces = [r.pace_min_per_mi for r in week_runs if r.pace_min_per_mi > 0]
-    import statistics
-    avg_pace = statistics.mean(paces) if paces else 0.0
-    cap = config.easy_hr_cap()
-    easy = sum(1 for r in week_runs if r.avg_hr and r.avg_hr < cap)
-    hard = sum(1 for r in week_runs if r.avg_hr and r.avg_hr >= cap)
-    total_re = sum(r.relative_effort or 0 for r in week_runs)
-
-    return WeekSummary(
-        week_start=week_start,
-        total_miles=total_mi,
-        run_count=len(week_runs),
-        longest_run_mi=longest,
-        avg_pace=avg_pace,
-        total_relative_effort=total_re,
-        strength_sessions=len(week_str),
-        easy_run_count=easy,
-        hard_run_count=hard,
-        runs=week_runs,
-    )
+def _run_lines(a: dict, today: date) -> list:
+    """One run: date, distance, pace, HR, then its review grade and what drove it."""
+    import post_run_review as prr
+    d = plan_tracker._activity_date(a)
+    dist_mi = (a.get("distance") or 0) / MI_M
+    mt = (a.get("moving_time") or 0) / 60
+    pace = mt / dist_mi if dist_mi > 0 else 0
+    hr = a.get("average_heartrate")
+    hr_txt = f"HR {hr:.0f}" if hr else "no HR"
+    head = (f"  {d.strftime('%a %b %d') if d else '?':<10} {_dist(dist_mi):>9}  "
+            f"{units.fmt_pace(pace):>10}  {hr_txt:<7}")
+    try:
+        week = mp.current_week(d) if (mp.has_plan() and d) else None
+        r = prr.review(a, streams=metrics.load_streams(a.get("id")), plan_week=week, lookup_plan=False)
+    except Exception:
+        return [head + f"  {a.get('name') or ''}".rstrip()]
+    sc = r["score"]
+    out = [head + f"  {r['classification']:<15} {sc['grade']} ({sc['score']})"]
+    drv = _driver(r["verdicts"])
+    if drv:
+        out += textwrap.wrap(drv, width=78, initial_indent="      ", subsequent_indent="        ")
+    return out
 
 
-def check_milestones(runs: List[RunActivity]) -> dict:
-    """Which race readiness milestones have been achieved."""
-    milestones = {
-        "8mi long run": False,
-        "10mi long run": False,
-        "race pace session (5mi+ at 9:00-9:10)": False,
-        "11mi long run": False,
-        "sub-9:10 for 8mi+": False,
-    }
-    for r in runs:
-        if r.distance_mi >= 8:
-            milestones["8mi long run"] = True
-        if r.distance_mi >= 10:
-            milestones["10mi long run"] = True
-        if r.distance_mi >= 11:
-            milestones["11mi long run"] = True
-        if (r.distance_mi >= 5 and 8.9 <= r.pace_min_per_mi <= 9.3
-                and r.avg_hr):
-            milestones["race pace session (5mi+ at 9:00-9:10)"] = True
-        if r.distance_mi >= 8 and r.pace_min_per_mi <= 9.17 and r.avg_hr:
-            milestones["sub-9:10 for 8mi+"] = True
-    return milestones
+def _runs_section(lines: list, today: date, runs: list, days: int = RECENT_DAYS) -> None:
+    since = today - timedelta(days=days)
+    recent = [a for a in runs
+              if (d := plan_tracker._activity_date(a)) is not None and since < d <= today]
+    if not recent:
+        return
+    recent.sort(key=lambda a: str(a.get("start_date_local") or a.get("start_date") or ""))
+    lines.append(BAR)
+    lines.append(f"  3. RUNS, LAST {days} DAYS")
+    lines.append(BAR)
+    lines.append("")
+    for a in recent:
+        lines += _run_lines(a, today)
+    lines.append("")
+    lines += _wrap("Grades score the easy cap, workout execution, the finish and the clock cap "
+                   "(A 90+, B 75+, C 60+). `python3 coach.py review <id>` has the full debrief.")
+    lines.append("")
 
 
-def adjust_next_week(actual: WeekSummary, planned: PlannedWeek,
-                     actr: float) -> PlannedWeek:
-    """Return an adjusted PlannedWeek based on what actually happened."""
-    next_week_num = planned.week_num + 1
-    next_planned = _get_plan_week(next_week_num)
+def _checkpoint_section(lines: list, today: date) -> None:
+    """The next checkpoint, or one that fell due in the last week, read live."""
+    try:
+        dps = [d for d in plan_tracker.evaluate_all_decision_points(today=today) if "error" not in d]
+    except Exception:
+        return
+    if not dps:
+        return
 
-    if next_planned is None:
-        # Past end of plan or race week -- return a default taper week
-        return PlannedWeek(
-            week_num=next_week_num,
-            week_start=planned.week_start + timedelta(days=7),
-            phase="taper",
-            target_miles=12,
-            long_run_target_mi=5,
-            key_workout="3mi shakeout + strides",
-            lift_sessions=0,
-            notes="Beyond plan. Keep easy, stay healthy.",
-        )
+    def _days_until(iso: str) -> int:
+        try:
+            return (date.fromisoformat(iso) - today).days
+        except (TypeError, ValueError):
+            return 10 ** 6
 
-    # Start from next week's plan and adjust
-    adj_miles = next_planned.target_miles
-    adj_long = next_planned.long_run_target_mi
-    adj_key = next_planned.key_workout
-    adj_notes = next_planned.notes
-    adj_lifts = next_planned.lift_sessions
-    adjustments = []
+    just = [d for d in dps if not d.get("is_future") and -7 <= _days_until(d["evaluate_date"]) <= 0]
+    upcoming = [d for d in dps if d.get("is_future")]
+    show = just + upcoming[:1]
+    if not show:
+        show = [dps[-1]]
 
-    # --- Heuristic 1: big miss -> gradual rebuild ---
-    if planned.target_miles > 0 and actual.total_miles < 0.7 * planned.target_miles:
-        rebuild_target = actual.total_miles * 1.15
-        if rebuild_target < adj_miles:
-            adj_miles = round(rebuild_target, 1)
-            adjustments.append(
-                f"Volume cut to {adj_miles:.0f}mi (gradual rebuild from {actual.total_miles:.1f}mi actual)"
-            )
+    lines.append(BAR)
+    lines.append("  4. CHECKPOINT")
+    lines.append(BAR)
+    for dp in show:
+        n = _days_until(dp["evaluate_date"])
+        when = f"in {n} days" if n > 0 else ("today" if n == 0 else f"{-n} days ago")
+        if dp.get("is_future"):
+            status = f"{dp['required_met']}/{dp['required_total']} criteria met so far"
+        else:
+            status = dp["status"].replace("_", " ").upper()
+        label = "JUST PASSED" if dp in just else ("NEXT" if n >= 0 else "LAST")
+        lines.append("")
+        lines.append(f"  {label}: {dp['name']} ({dp['evaluate_date']}, {when})  ->  {status}")
+        for c in dp["criteria_results"]:
+            mark = "x" if c["met"] else " "
+            opt = " (advisory)" if c.get("optional") else ""
+            actual = c["actual"]
+            if isinstance(actual, bool) or actual is None:
+                actual_s = "n/a" if actual is None else str(actual)
+            elif isinstance(actual, (int, float)):
+                actual_s = f"{actual:.1f}"
+            else:
+                actual_s = str(actual)
+            lines.append(f"    [{mark}] {c['label']}{opt}: {c['op']} {c['target']}, now {actual_s}")
+        if dp["status"] in ("at_risk", "off_track") and dp.get("downgrade_action"):
+            lines += _wrap(f"If it stays that way: {dp['downgrade_action']}")
+        elif dp.get("is_future") and dp.get("downgrade_action"):
+            lines += _wrap(f"If it is missed: {dp['downgrade_action']}", indent="    ")
+    lines.append("")
 
-    # --- Heuristic 2: missed long run ---
-    missed_long = actual.longest_run_mi < planned.long_run_target_mi * 0.7
-    if missed_long:
-        adj_long = min(planned.long_run_target_mi + 1, 12)
-        adjustments.append(
-            f"Long run set to {adj_long:.0f}mi (missed last week's {planned.long_run_target_mi:.0f}mi target)"
-        )
 
-    # --- Heuristic 3: ACTR too high -> reduce load ---
-    if actr > 1.5:
-        adj_miles = round(adj_miles * 0.8, 1)
-        adj_key = f"Easy run only (ACTR {actr:.2f} -- injury risk, dropping tempo)"
-        adj_lifts = min(adj_lifts, 1)
-        adjustments.append(
-            f"Reduced 20% due to high ACTR ({actr:.2f}). Tempo dropped. Long run kept."
-        )
-
-    # --- Heuristic 4: ACTR too low -> detraining warning ---
-    if actr < 0.8:
-        adjustments.append(
-            f"ACTR is {actr:.2f} -- detraining territory. Every run matters. "
-            f"Prioritize consistency over any single workout."
-        )
-
-    adj_notes_full = next_planned.notes
-    if adjustments:
-        adj_notes_full += " | ADJUSTMENTS: " + "; ".join(adjustments)
-
-    return PlannedWeek(
-        week_num=next_week_num,
-        week_start=next_planned.week_start,
-        phase=next_planned.phase,
-        target_miles=adj_miles,
-        long_run_target_mi=adj_long,
-        key_workout=adj_key if actr <= 1.5 else adj_key,
-        lift_sessions=adj_lifts,
-        lift_notes=next_planned.lift_notes,
-        notes=adj_notes_full,
-    )
+def _fitness_section(lines: list) -> None:
+    try:
+        from fitness_tracker import current_status
+        s = current_status()
+    except Exception:
+        return
+    if "error" in s:
+        return
+    lines.append(BAR)
+    lines.append("  5. FITNESS")
+    lines.append(BAR)
+    lines.append("")
+    lines.append(f"  Fitness (CTL) {s['ctl']:.1f} | Fatigue (ATL) {s['atl']:.1f} | "
+                 f"Form (TSB) {s['tsb']:+.1f} | {s['phase']}")
+    if not s.get("history_sufficient", True):
+        lines.append("")
+        lines += _wrap(f"[!] Only {s['history_days']}d of history loaded: CTL has not warmed up. "
+                       "Do not read fitness or fatigue off these numbers; load more history first.")
+    lines.append(f"  Days since last run: {s['days_since_run']}")
+    lines.append("")
 
 
 # ---------------------------------------------------------------------------
-# Report generation
+# Report
 # ---------------------------------------------------------------------------
 
-def weekly_report(runs: List[RunActivity], strength: List[StrengthSession],
-                  plan_week: PlannedWeek) -> str:
-    """Generate the full coaching report string."""
-    race = config.active_race()
-    race_name = race['name']
-    race_date = date.fromisoformat(race['date'])
-    goal_time = race['goal_time']
-    goal_pace_min_mi = race['goal_pace_min_per_mi']
+def build_weekly_report(today: Optional[date] = None, state: Optional[dict] = None) -> str:
+    if today is None:
+        today = date.today()
+    has_plan = mp.has_plan()
+    if state is None:
+        try:
+            state = mp.load_state() if has_plan else {}
+        except Exception:
+            state = {}
+    try:
+        runs = metrics.load_activities(activity_type="Run")
+    except Exception:
+        runs = []
 
-    lines = []
-    week_start = plan_week.week_start
-    actual = _summarize_week(runs, strength, week_start)
+    race = _race(today, has_plan)
+    days_to_race = None
+    try:
+        days_to_race = (date.fromisoformat(str(race["date"])) - today).days
+    except (KeyError, TypeError, ValueError):
+        pass
 
-    # ACTR from last 4 weeks
-    summaries = weekly_summaries(runs, strength, weeks_back=8)
-    actr = compute_actr(summaries)
+    lines = [RULE, f"  WEEKLY CHECK-IN  |  {race.get('name') or 'no race set'}"]
+    head = f"  {today.isoformat()}"
+    if days_to_race is not None:
+        head += f"  |  {days_to_race} days to race"
+    if race.get("goal_time"):
+        head += f"  |  Goal: {race['goal_time']}"
+    lines += [head, RULE, ""]
 
-    days_to_race = (race_date - date.today()).days
-
-    # ===== HEADER =====
-    lines.append("=" * 65)
-    lines.append(f"  WEEKLY COACHING CHECK-IN  |  {race_name}")
-    lines.append(f"  Week {plan_week.week_num} ({plan_week.phase.upper()})  |  "
-                 f"{week_start.strftime('%b %d')} - "
-                 f"{(week_start + timedelta(days=6)).strftime('%b %d, %Y')}")
-    lines.append(f"  Race: {race_date.strftime('%b %d, %Y')}  |  "
-                 f"{days_to_race} days out  |  Goal: {goal_time}")
-    lines.append("=" * 65)
-    lines.append("")
-
-    # ===== SECTION 1: LAST WEEK =====
-    lines.append("-" * 65)
-    lines.append("  1. LAST WEEK -- WHAT ACTUALLY HAPPENED")
-    lines.append("-" * 65)
-    lines.append("")
-
-    compliance = actual.compliance
-    compliance_str = f"{compliance * 100:.0f}%"
-
-    lines.append(f"  Total miles:    {actual.total_miles:.1f} / {plan_week.target_miles:.0f} "
-                 f"({compliance_str} of target)")
-    lines.append(f"  Runs:           {actual.run_count}")
-    lines.append(f"  Longest run:    {actual.longest_run_mi:.1f}mi "
-                 f"(target: {plan_week.long_run_target_mi:.0f}mi)")
-
-    if actual.avg_pace > 0:
-        lines.append(f"  Avg pace:       {fmt_pace(actual.avg_pace)}/mi")
-
-    # Polarization
-    total_hr_runs = actual.easy_run_count + actual.hard_run_count
-    if total_hr_runs > 0:
-        easy_pct = actual.easy_run_count / total_hr_runs * 100
-        lines.append(f"  Polarization:   {actual.easy_run_count} easy / "
-                     f"{actual.hard_run_count} hard "
-                     f"({easy_pct:.0f}% easy, target >= 75%)")
-    else:
-        lines.append("  Polarization:   No HR data available")
-
-    # Strength
-    lines.append(f"  Strength:       {actual.strength_sessions} sessions "
-                 f"(target: {plan_week.lift_sessions})")
-    lines.append("                  (Strava strength data is sparse -- "
-                 "count only, no volume detail)")
-    lines.append("")
-
-    # Individual runs
-    if actual.runs:
-        lines.append("  Runs this week:")
-        for r in sorted(actual.runs, key=lambda x: x.date):
-            hr_str = f"HR {r.avg_hr:.0f}" if r.avg_hr else "no HR"
-            zone_str = r.hr_zone if r.avg_hr else ""
-            lines.append(f"    {r.date.strftime('%a %b %d')} | "
-                         f"{r.distance_mi:.1f}mi | {r.pace_str()}/mi | "
-                         f"{hr_str} {zone_str}")
+    current = None
+    if not has_plan:
+        lines.append("  No training plan yet. Ask for one (\"build me a plan, I can run 4 days a week\")")
+        lines.append("  or run: python3 coach.py plan --from-data")
         lines.append("")
-
-    # ===== SECTION 2: ASSESSMENT =====
-    lines.append("-" * 65)
-    lines.append("  2. ASSESSMENT -- HONEST EVALUATION")
-    lines.append("-" * 65)
-    lines.append("")
-
-    # ACTR
-    if actr > 1.5:
-        lines.append(f"  ACTR: {actr:.2f} -- DANGER ZONE. Injury risk is elevated.")
-        lines.append("  You ramped too fast. Pull back this week or you won't make "
-                     "it to the start line.")
-    elif actr > 1.3:
-        lines.append(f"  ACTR: {actr:.2f} -- Yellow flag. You're pushing the upper limit.")
-        lines.append("  Manageable if this week is slightly easier.")
-    elif actr >= 0.8:
-        lines.append(f"  ACTR: {actr:.2f} -- In the sweet spot (0.8-1.3). Good.")
-    elif actr > 0:
-        lines.append(f"  ACTR: {actr:.2f} -- DETRAINING TERRITORY. You are losing fitness.")
-        lines.append("  Every run you skip now costs you minutes on race day.")
     else:
-        lines.append("  ACTR: Insufficient data (need 4 weeks of history).")
+        current = mp.current_week(today)
+        if current is None:
+            weeks = mp.all_weeks()
+            start = date.fromisoformat(weeks[0]["start_date"]) if weeks else None
+            if start and today < start:
+                lines.append(f"  The plan starts {start.isoformat()} ({(start - today).days} days). "
+                             "Until then: easy running, nothing heroic.")
+            elif days_to_race is not None and days_to_race < 0:
+                lines.append(f"  Race was {-days_to_race} days ago. Plan complete; build the next one "
+                             "when the next goal is set.")
+            else:
+                lines.append("  Today is outside the plan window.")
+            lines.append("")
+        else:
+            if current["week_num"] > 1:
+                _last_week_section(lines, current["week_num"] - 1, today, runs, state)
+            _this_week_section(lines, current, today, state)
 
-    lines.append("")
+    _runs_section(lines, today, runs)
+    if current is not None:
+        _checkpoint_section(lines, today)
+    _fitness_section(lines)
 
-    # Volume assessment
-    if compliance >= 0.95:
-        lines.append(f"  Volume: You hit {actual.total_miles:.1f}mi against "
-                     f"{plan_week.target_miles:.0f}mi target. On track.")
-    elif compliance >= 0.7:
-        gap = plan_week.target_miles - actual.total_miles
-        lines.append(f"  Volume: {actual.total_miles:.1f}mi vs {plan_week.target_miles:.0f}mi "
-                     f"target. Short by {gap:.1f}mi.")
-        lines.append("  Not a disaster, but this cannot become a pattern.")
-    elif compliance >= 0.4:
-        lines.append(f"  Volume: {actual.total_miles:.1f}mi. Plan said "
-                     f"{plan_week.target_miles:.0f}mi. {goal_time} is slipping.")
-        lines.append("  You need to double your volume next week or this race "
-                     "becomes a survival exercise, not a performance.")
-    elif actual.total_miles > 0:
-        lines.append(f"  Volume: {actual.total_miles:.1f}mi this week. "
-                     f"The plan called for {plan_week.target_miles:.0f}. "
-                     "That is not enough.")
-        lines.append(f"  At this rate you are training for a DNF, not a {goal_time}.")
+    lines.append(RULE)
+    if days_to_race is not None and 0 <= days_to_race <= 7:
+        lines.append("  Race week. Trust the training. Sleep. Execute.")
+    elif current is None:
+        lines.append("  Consistency first; the plan gives the weeks a shape.")
     else:
-        lines.append("  Volume: ZERO miles this week. You did not run.")
-        lines.append("  There is no plan that accounts for zero. Get out the door.")
-
-    # Run count
-    if actual.run_count < 3:
-        lines.append(f"  Frequency: You only ran {actual.run_count} time(s) this week. "
-                     "That is not enough.")
-        lines.append("  Half marathon prep needs 3-4 runs per week minimum.")
-
-    # Long run
-    long_ratio = actual.longest_run_mi / plan_week.long_run_target_mi if plan_week.long_run_target_mi > 0 else 0
-    if long_ratio < 0.7 and plan_week.long_run_target_mi > 0:
-        lines.append(f"  Long run: {actual.longest_run_mi:.1f}mi vs "
-                     f"{plan_week.long_run_target_mi:.0f}mi target. Missed.")
-        lines.append("  The long run is non-negotiable in half marathon training.")
-    elif long_ratio >= 0.9:
-        lines.append(f"  Long run: {actual.longest_run_mi:.1f}mi. Hit the target.")
-
-    # Overall goal-time assessment
-    lines.append("")
-    if compliance >= 0.9 and actual.run_count >= 3:
-        lines.append(f"  {goal_time} status: ON TRACK. Keep executing.")
-    elif compliance >= 0.7:
-        lines.append(f"  {goal_time} status: POSSIBLE but you have no margin for error.")
-    elif actual.total_miles > 0:
-        lines.append(f"  {goal_time} status: AT RISK. The next two weeks will determine "
-                     "if this is realistic.")
-    else:
-        lines.append(f"  {goal_time} status: UNLIKELY at current effort level.")
-
-    lines.append("")
-
-    # ===== SECTION 3: THIS WEEK =====
-    lines.append("-" * 65)
-    lines.append("  3. THIS WEEK -- WHAT TO DO")
-    lines.append("-" * 65)
-    lines.append("")
-
-    next_week = adjust_next_week(actual, plan_week, actr)
-
-    lines.append(f"  Week {next_week.week_num} ({next_week.phase.upper()})  |  "
-                 f"Target: {next_week.target_miles:.0f}mi  |  "
-                 f"Long run: {next_week.long_run_target_mi:.0f}mi")
-    lines.append(f"  Key workout: {next_week.key_workout}")
-    lines.append(f"  Lift sessions: {next_week.lift_sessions}")
-    if next_week.lift_notes:
-        lines.append(f"  Lift notes: {next_week.lift_notes}")
-    lines.append("")
-
-    if next_week.notes:
-        lines.append(f"  Notes: {next_week.notes}")
-        lines.append("")
-
-    # Generate a 7-day layout
-    ws = next_week.week_start
-    remaining_easy = next_week.target_miles - next_week.long_run_target_mi
-    # Distribute: key workout ~5mi, rest as easy runs
-    key_mi = min(5.0, remaining_easy * 0.4)
-    easy_pool = remaining_easy - key_mi
-    easy_per = round(easy_pool / 2, 1) if easy_pool > 0 else 3.0
-
-    day_plan = [
-        (ws, "REST or 30min walk"),
-        (ws + timedelta(days=1), f"{easy_per:.1f}mi easy @ 10:00-10:15, HR < 148"),
-        (ws + timedelta(days=2), f"{next_week.key_workout}"),
-        (ws + timedelta(days=3), "REST" + (f" + Lift" if next_week.lift_sessions >= 1 else "")),
-        (ws + timedelta(days=4), f"{easy_per:.1f}mi easy @ 10:00-10:15, HR < 148"),
-        (ws + timedelta(days=5), f"{next_week.long_run_target_mi:.0f}mi long run @ 10:15, HR < 145"),
-        (ws + timedelta(days=6), "REST" + (f" + Lift" if next_week.lift_sessions >= 2 else "")),
-    ]
-
-    lines.append("  7-DAY PLAN:")
-    for d, workout in day_plan:
-        day_name = d.strftime("%a %b %d")
-        lines.append(f"    {day_name}:  {workout}")
-    lines.append("")
-
-    # ===== SECTION 4: RACE COUNTDOWN =====
-    lines.append("-" * 65)
-    lines.append("  4. RACE COUNTDOWN")
-    lines.append("-" * 65)
-    lines.append("")
-
-    lines.append(f"  {race_name}  |  {race_date.strftime('%b %d, %Y')}  |  "
-                 f"{days_to_race} days to go")
-    lines.append(f"  Goal: {goal_time}  |  Pace: ~{fmt_pace(goal_pace_min_mi)}/mi")
-    lines.append("")
-
-    milestones = check_milestones(runs)
-    lines.append("  Milestones:")
-    for name, hit in milestones.items():
-        mark = "x" if hit else " "
-        lines.append(f"    [{mark}] {name}")
-    lines.append("")
-
-    # Key remaining workouts
-    remaining = [name for name, hit in milestones.items() if not hit]
-    if remaining:
-        lines.append("  Key remaining before race day:")
-        for r in remaining:
-            lines.append(f"    - {r}")
-    else:
-        lines.append("  All major milestones hit. Execute the taper and race smart.")
-    lines.append("")
-
-    # Closing
-    lines.append("=" * 65)
-    if days_to_race <= 7:
-        lines.append("  RACE WEEK. Trust the training. Sleep. Hydrate. Execute.")
-    elif days_to_race <= 14:
-        lines.append("  Two weeks out. This is where discipline matters most.")
-    elif compliance < 0.5 and actual.total_miles > 0:
-        lines.append("  Stop planning. Start running. The clock does not care "
-                     "about your intentions.")
-    elif actual.total_miles == 0:
-        lines.append("  You have the plan. Now do the work.")
-    else:
-        lines.append("  Stay consistent. The race is won in the weeks, "
-                     "not on race day.")
-    lines.append("=" * 65)
-
+        lines.append("  The race is won in the weeks, not on race day. Run the plan.")
+    lines.append(RULE)
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def report_path(today: Optional[date] = None) -> Path:
+    """plan_output/weekly/<ISO year>-W<ISO week>.md for the given day."""
+    if today is None:
+        today = date.today()
+    iso_year, iso_week, _ = today.isocalendar()
+    return REPORT_DIR / f"{iso_year}-W{iso_week:02d}.md"
 
-def main():
-    sys.stdout.reconfigure(encoding='utf-8')
 
-    # Load data
-    runs, strength = load_activities()
-    print(f"Loaded {len(runs)} runs, {len(strength)} strength sessions.\n")
+def write_report(text: str, today: Optional[date] = None) -> Path:
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    path = report_path(today)
+    path.write_text(text + "\n", encoding="utf-8")
+    return path
 
-    race = config.active_race()
-    race_date = date.fromisoformat(race['date'])
 
-    # Determine current week
-    week_num = get_current_week_num()
-    if week_num == 0:
-        print(f"Plan has not started yet. Plan starts {PLAN_START.strftime('%b %d, %Y')}.")
-        print(f"Race: {race_date.strftime('%b %d, %Y')} ({(race_date - date.today()).days} days out).")
-        return
+def main(argv: Optional[list] = None) -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
-    plan_week = _get_plan_week(week_num)
-    if plan_week is None:
-        # Past the last defined plan week -- use the last one as reference
-        plan_week = PLAN_WEEKS[-1]
-        print(f"Week {week_num} is beyond the defined plan. "
-              f"Using week {plan_week.week_num} as reference.\n")
+    args = sys.argv[1:] if argv is None else list(argv)
+    today = None
+    if "--date" in args:
+        today = date.fromisoformat(args[args.index("--date") + 1])
+    no_write = "--no-write" in args
 
-    print(f"Current plan week: {week_num} ({plan_week.phase})\n")
+    # Persist reconciled actuals first (the one write path), then report. A
+    # failed reconcile still gets a report, but the exit code says so.
+    rc = 0
+    if "--no-reconcile" not in args:
+        try:
+            from reconcile import reconcile
+            reconcile(today=today, verbose=False)
+        except Exception as e:
+            print(f"  [weekly_check] reconcile FAILED: {e}")
+            rc = 3
 
-    # Generate and print report
-    report = weekly_report(runs, strength, plan_week)
+    report = build_weekly_report(today=today)
     print(report)
+    if not no_write:
+        path = write_report(report, today=today)
+        print(f"\n  Report written: {path}")
+    return rc
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

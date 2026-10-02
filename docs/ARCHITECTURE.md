@@ -72,6 +72,27 @@ of hardcoding constants, so the whole system is tuned by editing one JSON file.
   "switch to the next race the day after this one" behavior falls out of that
   rule for any number of races. A manual override lives in
   `data/plan_state.json`.
+- `coach.py init --from-mcp` (`onboarding.py`) writes `config.json` from the
+  Strava MCP inbox and the cache; every derivation lands in `_meta.notes`.
+
+### Where state lives
+
+`config.home()` decides the root for everything the app writes: the code
+directory for a clone, `~/.claude/plugins/data/strava-run-coach/` when the
+code sits under a `.claude/plugins/` tree (so an installed plugin's data
+survives updates), or `STRAVA_COACH_HOME` when set. Every path is a constant
+on `config` (`DATA_DIR`, `ACTIVITIES_DIR`, `STREAMS_DIR`, `MCP_DIR`, `CSV_PATH`,
+`CONFIG_PATH`, `STATE_PATH`, `PLAN_OUTPUT_DIR`, `ENV_PATH`); modules copy them
+into module-level names so tests can swap them. Shipped files
+(`config.example.json`, `docs/examples/`) stay code-relative.
+
+### Units
+
+The engine is in miles, minutes per mile and metres throughout. `units.py`
+converts at the edges: `fmt_dist`, `fmt_pace`, `fmt_pace_range`,
+`volume_label` for output, `parse_dist` / `to_mi` for input (`--entry 50km`),
+`per_mi_to_user` for rates. `athlete.units` is the only switch; paces in the
+config are always min/mi. The Eddington number counts in the athlete's unit.
 
 ## Module map
 
@@ -90,31 +111,56 @@ of hardcoding constants, so the whole system is tuned by editing one JSON file.
   probability.
 - `fitness_tracker.py` - CTL/ATL/TSB training-load balance (fitness, fatigue,
   form) via exponentially weighted TSS.
-- `metrics.py` - Eddington number, run streaks, best efforts at standard
-  distances, and year-to-date summaries.
+- `metrics.py` - the cache loader chokepoint (`load_activities`,
+  `load_streams`, `latest_run`), Eddington number, streaks, best efforts.
+- `trends.py` - long-horizon lenses (efficiency, consistency, recovery,
+  elevation cost, treadmill vs outdoor).
+- `intervals.py` - reps reconstructed from a stream (laps on a track are
+  auto splits); `session_intent.py` - a Strava description such as
+  "13 easy, 3 at half pace, 2 easy" into placed segments; `hr_quality.py` -
+  wrist-HR plausibility (post-stop re-acquisition, cadence lock).
 
 ### Planning
-- `marathon_plan.py` - loads and validates `data/marathon_plan.json` (the
-  multi-week structured plan) and provides slide-aware week lookup.
-- `plan_tracker.py` - compliance scoring and decision-point evaluation against
-  current fitness.
-- `planner.py` - generates the shorter goal-race plan.
+- `marathon_plan.py` - loads and validates the plan JSON for the active race
+  (`config.plan_path`), slide-aware week lookup, plan state and notes
+  (`standing_notes` carry an `until` date).
+- `plan_generator.py` - writes the plan: race-distance presets, the `plan`
+  config block and flags (days, long-run day, lifting, quality level, caps),
+  week-level `days[]` from `plan_layout`.
+- `plan_layout.py` - the 7-day layout of a plan week, `role_for_date` (the
+  review's plan layer), `apply_notes` (a standing "no speedwork" note turns
+  key days easy), `format_session`.
+- `plan_tracker.py` - compliance, checkpoints (decision points), marathon-pace
+  laps by pace and HR band.
+- `reconcile.py` - actual-vs-planned into `data/plan_state.json`; notes.
 - `ical_generator.py` - exports workouts as an `.ics` calendar.
 
 ### Coaching brain / output
-- `daily_brief.py` - the morning brief: today's workout plus a fatigue read.
-- `post_run_review.py` - single-run debrief with laps and cardiac drift.
+- `daily_brief.py` - today's session from the layout (standing notes applied)
+  plus a fatigue read against the week's targets.
+- `post_run_review.py` - a pure `review(activity, streams, plan_week, laps)
+  -> dict` and `render()`: intent, easy discipline, declared segments by pace
+  and HR band, pace-matched decoupling, stops, the finish, load, a sensor
+  flag, a grade. `weekly_check.py` consumes the dict for its run grades.
+- `weekly_check.py` - the weekly check-in, plan-driven; writes
+  `plan_output/weekly/`.
+- `status.py` - what is cached, what the MCP still needs, next steps.
 - `dashboard.py` - a self-contained static HTML dashboard.
 - `coach.py` - the unified entry point that routes sub-commands and runs the
   full report.
 
 ### Data
-- `data/marathon_plan.json` - the structured plan template (validated on load:
-  contiguous week numbers, start dates exactly 7 days apart, phases referencing
-  valid week ranges).
-- `data/plan_state.json` - auto-managed slide offset, per-week status, and the
-  manual active-race override.
-- `data/strava_cache/` - the per-activity JSON cache.
+- `data/<race_id>.generated.json` - the plan for a race, written by
+  `plan_generator` (validated on load: contiguous week numbers, start dates
+  exactly 7 days apart, phases referencing valid week ranges, 7 `days` per
+  week when present). The annotated template is
+  `docs/examples/plan.example.json`.
+- `data/plan_state.json` - auto-managed slide offset, per-week actuals and
+  status, notes, and the manual active-race override.
+- `data/strava_cache/activities/` - the per-activity JSON cache;
+  `data/strava_cache/streams/<id>.json` - raw streams for the review.
+- `data/mcp/` - the Strava MCP inbox: `list/`, `perf/`, `streams/`,
+  `profile.json`, `zones.json`. All gitignored.
 
 ## A naming note
 

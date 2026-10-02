@@ -8,17 +8,23 @@ from collections import defaultdict
 from typing import List, Tuple
 
 import config
+import units
 from enrichment import classify_activity
 from models import RunActivity, StrengthSession, WeekSummary, PaceZones
 
 
-def load_activities(csv_path: str = 'activities.csv') -> Tuple[List[RunActivity], List[StrengthSession]]:
-    """Parse activities.csv into RunActivity and StrengthSession lists."""
+def load_activities(csv_path=None) -> Tuple[List[RunActivity], List[StrengthSession]]:
+    """Parse activities.csv into RunActivity and StrengthSession lists.
+
+    Defaults to config.CSV_PATH (under the state home), not the CWD.
+    """
+    if csv_path is None:
+        csv_path = config.CSV_PATH
     with open(csv_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
     reader = csv.reader(io.StringIO(content))
-    header = next(reader)
+    next(reader)  # header row; columns are addressed by fixed index below
 
     # Duplicate column names exist. Use explicit indices:
     # 1=Date, 2=Name, 3=Type, 4=Description, 6=Distance(km), 7=MaxHR, 8=RelEffort
@@ -197,7 +203,7 @@ def polarization_stats(runs: List[RunActivity], months_back: int = 6) -> dict:
 
 
 def race_pace_readiness(runs: List[RunActivity]) -> dict:
-    """Check readiness for target race pace (9:00-9:10/mi)."""
+    """Check readiness for the configured race-pace band."""
     at_pace_5plus = [r for r in runs
                      if 8.9 <= r.pace_min_per_mi <= 9.3
                      and r.distance_mi >= 5 and r.avg_hr]
@@ -226,11 +232,9 @@ def monthly_mileage(runs: List[RunActivity], months_back: int = 12) -> dict:
 
 
 def fmt_pace(p: float) -> str:
-    if p <= 0:
-        return "N/A"
-    m = int(p)
-    s = int((p - m) * 60)
-    return f"{m}:{s:02d}"
+    """M:SS in the user's unit, no label (see units.fmt_pace)."""
+    import units
+    return units.fmt_pace(p, label=False)
 
 
 # --- CLI output ---
@@ -264,11 +268,12 @@ def print_summary(runs, strength):
     print(f"\n{'=' * 60}")
     print("TRAINING POLARIZATION (last 6 months)")
     print("=" * 60)
-    print(f"Easy (<148 bpm): {polar['easy_count']}/{polar['total']} = "
-          f"{polar['easy_pct']:.0f}% ({polar['easy_miles']:.1f} mi)")
-    print(f"Hard (>=148 bpm): {polar['hard_count']}/{polar['total']} = "
-          f"{polar['hard_pct']:.0f}% ({polar['hard_miles']:.1f} mi)")
-    print(f"Target: >= 75% easy")
+    cap = config.easy_hr_cap()
+    print(f"Easy (<{cap} bpm): {polar['easy_count']}/{polar['total']} = "
+          f"{polar['easy_pct']:.0f}% ({units.fmt_dist(mi=polar['easy_miles'])})")
+    print(f"Hard (>={cap} bpm): {polar['hard_count']}/{polar['total']} = "
+          f"{polar['hard_pct']:.0f}% ({units.fmt_dist(mi=polar['hard_miles'])})")
+    print("Target: >= 75% easy")
 
     print(f"\n{'=' * 60}")
     print("PACE vs HR")
@@ -276,11 +281,11 @@ def print_summary(runs, strength):
     ph = pace_hr_table(runs)
     for bucket, data in ph.items():
         pct = data['avg_hr'] / zones.max_hr * 100
-        print(f"  {fmt_pace(data['avg_pace'])}/mi -> avg HR {data['avg_hr']:.0f} "
+        print(f"  {fmt_pace(data['avg_pace'])}{units.pace_label()} -> avg HR {data['avg_hr']:.0f} "
               f"({pct:.0f}% max) [{data['count']} runs]")
 
     print(f"\n{'=' * 60}")
-    print("RACE PACE READINESS (9:00-9:10/mi)")
+    print(f"RACE PACE READINESS ({units.fmt_pace_range(zones.race_pace_ceiling, zones.race_pace_floor)})")
     print("=" * 60)
     print(f"Runs at race pace for 5+ mi: {len(readiness['at_race_pace_5mi'])}")
     print(f"Runs sub-9:10 for 8+ mi: {len(readiness['sub_910_8mi'])}")
@@ -288,7 +293,7 @@ def print_summary(runs, strength):
 
     for r in readiness['sub_910_8mi'][:5]:
         print(f"  {r.date.strftime('%b %d %Y')} | {r.distance_mi:.1f}mi | "
-              f"{r.pace_str()}/mi | avg HR {r.avg_hr:.0f}")
+              f"{r.pace_str()}{units.pace_label()} | avg HR {r.avg_hr:.0f}")
 
     print(f"\n{'=' * 60}")
     print("MONTHLY MILEAGE (last 12 months)")
@@ -296,7 +301,7 @@ def print_summary(runs, strength):
     mm = monthly_mileage(runs)
     for key in sorted(mm.keys()):
         m = mm[key]
-        print(f"  {key}: {m['count']:2d} runs, {m['miles']:.1f} mi, "
+        print(f"  {key}: {m['count']:2d} runs, {units.fmt_dist(mi=m['miles'])}, "
               f"longest {m['longest']:.1f} mi")
 
 

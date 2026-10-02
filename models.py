@@ -49,11 +49,8 @@ class RunActivity:
         return None
 
     def pace_str(self) -> str:
-        if self.pace_min_per_mi <= 0:
-            return "N/A"
-        m = int(self.pace_min_per_mi)
-        s = int((self.pace_min_per_mi - m) * 60)
-        return f"{m}:{s:02d}"
+        import units
+        return units.fmt_pace(self.pace_min_per_mi, label=False)
 
 
 @dataclass
@@ -111,6 +108,7 @@ class PlannedWorkout:
     hr_cap: Optional[int] = None
     is_outdoor: bool = True
     notes: str = ""
+    pace_min_per_mi: Optional[float] = None   # numeric pace for duration estimates
 
 
 @dataclass

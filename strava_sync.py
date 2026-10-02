@@ -24,16 +24,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from enrichment import enrich, needs_enrichment, backfill_enrichment
-from strava_api import StravaAPI, RateLimitError, StravaAPIError
+from enrichment import enrich, backfill_enrichment
+from strava_api import StravaAPI, StravaAPIError
+import config
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache"
-ACTIVITIES_DIR = CACHE_DIR / "activities"
+CACHE_DIR = config.CACHE_DIR
+ACTIVITIES_DIR = config.ACTIVITIES_DIR
 LAST_SYNC_FILE = CACHE_DIR / "last_sync.json"
 SYNC_STATE_FILE = CACHE_DIR / "sync_state.json"
-LOCK_FILE = Path(__file__).parent / "data" / ".sync.lock"
-CSV_PATH = Path(__file__).parent / "activities.csv"
+LOCK_FILE = config.LOCK_FILE
+CSV_PATH = config.CSV_PATH
 
 # Lock is considered stale and reclaimable after this many seconds
 LOCK_STALE_SEC = 600  # 10 min
@@ -371,6 +372,42 @@ def sync(full: bool = False, backfill_days: Optional[int] = None,
         _release_lock()
 
 
+MIN_COLD_BACKFILL_DAYS = 90   # CTL is a 42-day EWMA; less than this and it is still ramping
+
+
+def _cached_history_days() -> float:
+    """Span in days between the oldest and newest cached activity (0 if none)."""
+    dates = []
+    for a in _all_cached_activities():
+        if a.get("_deleted_at"):
+            continue
+        iso = a.get("start_date_local") or a.get("start_date") or ""
+        try:
+            dates.append(datetime.fromisoformat(iso.replace("Z", "+00:00")))
+        except ValueError:
+            continue
+    if len(dates) < 2:
+        return 0.0
+    return (max(dates) - min(dates)).total_seconds() / 86400
+
+
+def _floor_cold_backfill(backfill_days: int) -> int:
+    """Raise a too-short backfill to MIN_COLD_BACKFILL_DAYS on a cold cache.
+
+    A 21-day pull into an empty cache leaves CTL ramping from zero and reads
+    as a false "overreaching". The caller's number is honoured once the cache
+    already holds enough history: an incremental top-up is legitimate."""
+    if backfill_days >= MIN_COLD_BACKFILL_DAYS:
+        return backfill_days
+    have = _cached_history_days()
+    if have >= MIN_COLD_BACKFILL_DAYS:
+        return backfill_days
+    print(f"  [strava_sync] Cache holds {have:.0f}d of history and --backfill {backfill_days} "
+          f"would not reach the {MIN_COLD_BACKFILL_DAYS}d a valid fitness read needs "
+          f"(CTL is a 42-day average). Extending to {MIN_COLD_BACKFILL_DAYS}d.")
+    return MIN_COLD_BACKFILL_DAYS
+
+
 def _sync_inner(full: bool, backfill_days: Optional[int],
                 fetch_detail: bool, backfill_enrich: bool,
                 max_per_run: int) -> dict:
@@ -542,8 +579,9 @@ def main():
         print(f"  [strava_sync] Re-enriched {n} activities.")
         return
 
+    backfill = _floor_cold_backfill(args.backfill) if args.backfill else args.backfill
     try:
-        sync(full=args.full, backfill_days=args.backfill,
+        sync(full=args.full, backfill_days=backfill,
              fetch_detail=not args.no_detail,
              backfill_enrich=not args.no_backfill_enrich,
              max_per_run=args.max_per_run)

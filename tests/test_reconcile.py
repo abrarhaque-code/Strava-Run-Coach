@@ -234,10 +234,13 @@ class TestReconcile(unittest.TestCase):
                     self.assertEqual(st["weeks_actuals"]["1"]["status"], "complete")
                     self.assertEqual(st["weeks_status"]["1"], "complete")
 
-    def test_partial_coverage_does_not_zero_uncovered_older_week(self):
+    def test_partial_coverage_leaves_finalized_week_alone(self):
         """A load that only covers recent weeks (e.g. a short --backfill)
         must not report a real zero for an older, already-recorded week
-        that simply falls outside this pass's coverage."""
+        that simply falls outside this pass's coverage. A finalized week is
+        skipped silently: it cannot change and there is nothing wrong with
+        it, so it is NOT flagged data_stale (that flag is for a pass that
+        loaded nothing at all)."""
         wk1_acts = [_run_on("2026-05-18", 10), _run_on("2026-05-20", 4), _run_on("2026-05-23", 8)]
         with tempfile.TemporaryDirectory() as tmp:
             with temp_plan(Path(tmp), plan=make_plan()) as mp_mod:
@@ -255,7 +258,7 @@ class TestReconcile(unittest.TestCase):
                     st = mp_mod.load_state()
                     wk1 = st["weeks_actuals"]["1"]
                     self.assertEqual(wk1["run_mi"], 22.0)   # not zeroed
-                    self.assertTrue(wk1.get("data_stale"))
+                    self.assertFalse(wk1.get("data_stale"))  # finalized: skipped silently
 
     def test_data_stale_clears_when_coverage_returns(self):
         acts = [_run_on("2026-05-18", 10)]
@@ -274,6 +277,22 @@ class TestReconcile(unittest.TestCase):
                     import reconcile
                     reconcile.reconcile(today=date(2026, 5, 26), verbose=False)
                     self.assertFalse(mp_mod.load_state()["weeks_actuals"]["1"].get("data_stale", False))
+
+
+class TestNoPlan(unittest.TestCase):
+    def test_reconcile_without_a_plan_is_a_quiet_noop(self):
+        import marathon_plan as mp
+        import reconcile
+        with tempfile.TemporaryDirectory() as tmp:
+            old = mp.PLAN_PATH
+            mp.PLAN_PATH = Path(tmp) / "none.json"
+            mp.load_plan.cache_clear()
+            try:
+                res = reconcile.reconcile(today=date(2026, 6, 2), verbose=False)
+                self.assertEqual(res["weeks_reconciled"], 0)
+            finally:
+                mp.PLAN_PATH = old
+                mp.load_plan.cache_clear()
 
 
 if __name__ == "__main__":

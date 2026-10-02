@@ -35,6 +35,11 @@ class TestPluginManifest(unittest.TestCase):
         names = [pl["name"] for pl in m["plugins"]]
         self.assertIn(_load(".claude-plugin/plugin.json")["name"], names)
 
+    def test_plugin_version_matches_the_changelog(self):
+        version = _load(".claude-plugin/plugin.json")["version"]
+        changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## [{version}]", changelog)
+
     def test_mcp_json_has_strava_server(self):
         cfg = _load(".mcp.json")
         strava = cfg["mcpServers"]["strava"]
@@ -49,8 +54,32 @@ class TestPluginManifest(unittest.TestCase):
 class TestSkills(unittest.TestCase):
     def _skill_dirs(self):
         skills = sorted((_ROOT / ".claude" / "skills").iterdir())
-        self.assertGreaterEqual(len(skills), 4)
+        self.assertGreaterEqual(len(skills), 5)
         return skills
+
+    def test_the_five_skills_ship(self):
+        names = {d.name for d in self._skill_dirs()}
+        for want in ("strava-coach-analyze", "review-run", "weekly-review", "race-forecast", "build-plan"):
+            self.assertIn(want, names)
+
+    def test_every_skill_points_at_the_coaching_notes(self):
+        self.assertTrue((_ROOT / "docs" / "COACHING.md").exists())
+        for d in self._skill_dirs():
+            text = (d / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("COACHING.md", text, f"{d.name} does not point at docs/COACHING.md")
+
+    def test_entry_skill_uses_the_plugin_data_home(self):
+        text = (_ROOT / ".claude" / "skills" / "strava-coach-analyze" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn('STRAVA_COACH_HOME="${CLAUDE_PLUGIN_DATA}"', text)
+        self.assertIn("${CLAUDE_PLUGIN_ROOT}/coach.py", text)
+        self.assertIn("status --json", text)
+        self.assertIn("init --from-mcp", text)
+
+    def test_coaching_notes_carry_the_core_rules(self):
+        text = (_ROOT / "docs" / "COACHING.md").read_text(encoding="utf-8")
+        for needle in ("Verify before you escalate", "HR is cost", "adjust and move forward",
+                       "42-day", "three consecutive days", "pace-matched"):
+            self.assertIn(needle, text)
 
     def test_every_skill_has_frontmatter_description(self):
         for d in self._skill_dirs():

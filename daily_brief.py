@@ -1,262 +1,282 @@
-"""Daily brief — what to do today + how you should feel.
+"""Daily brief: today's session, how fresh you are, and the last three days.
 
-Pulls today's planned workout from the plan, current fatigue from the fitness
-tracker, and gives a focused 5-line brief. Run in the morning before training.
+    python3 coach.py brief            # print
+    python3 coach.py brief --save     # also write plan_output/brief.md
+    python3 daily_brief.py --date 2026-10-01
 
-Usage:
-    python3 daily_brief.py            # print to stdout
-    python3 daily_brief.py --save     # also write plan_output/brief.md
+Today's session comes from the plan's 7-day layout (plan_layout) with any
+standing note applied: "no speedwork until the calf settles" turns a key day
+easy while the note stands. Fatigue is read off the last three days against
+this week's targets and the HR caps in config, never against fixed numbers.
 """
 
-import json
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Optional
 
 import config
+import enrichment
+import marathon_plan as mp
+import metrics
+import plan_layout
+import units
+
+BRIEF_PATH = config.PLAN_OUTPUT_DIR / "brief.md"
+RECENT_DAYS = 3
+MI_M = 1609.34
+HEAVY_BLOCK_FRACTION = 0.40      # of the week's target volume inside 3 days = heavy
+LONG_RUN_FRACTION = 0.60         # of the week's long-run target = a long run happened
+TRULY_EASY_MARGIN = 5            # bpm under the easy cap
 
 
-BRIEF_PATH = Path(__file__).parent / "plan_output" / "brief.md"
-
-
-def _today_workout_from_plan():
-    """Find today's workout from the active plan."""
-    today = date.today()
-    race = config.active_race(today)
-
-    if not config.has_structured_plan(race):
-        from planner import generate_half_plan
-        plan = generate_half_plan(race)
-        for week in plan.weeks:
-            for w in week.workouts:
-                if w.day == today:
-                    return w, week
-        return None, None
-
-    # Structured (marathon) plan active: synthesize a workout from current week
+def _run_date(a: dict) -> Optional[date]:
     try:
-        import marathon_plan as mp
-        cw = mp.current_week(today)
-        if not cw:
-            return None, None
-        # Determine day-of-week role
-        weekday = today.weekday()  # 0=Mon, 5=Sat, 6=Sun
-        # Synthetic workout dict masquerading as the planner.PlannedWorkout shape
-        class _Synthetic:
-            pass
-        w = _Synthetic()
-        w.day = today
-        if weekday == 5 and cw["long_run_target"] > 0:
-            w.workout_type = "long"
-            w.description = f"Long run: {cw['long_run_target']}mi"
-            w.target_pace = "10:00-10:30 (long run pace)"
-            w.hr_cap = config.long_run_hr_cap()
-            w.notes = cw.get("notes", "")
-        elif weekday == 2 and cw.get("key_workout"):
-            w.workout_type = "key"
-            w.description = cw["key_workout"]
-            w.target_pace = ""
-            w.hr_cap = None
-            w.notes = cw.get("notes", "")
-        elif weekday in (0, 3):
-            w.workout_type = "easy"
-            w.description = "Easy run"
-            w.target_pace = "10:00-10:30"
-            w.hr_cap = config.easy_hr_cap()
-            w.notes = ""
-        elif weekday == 4:
-            w.workout_type = "rest"
-            w.description = "Rest"
-            w.target_pace = ""
-            w.hr_cap = None
-            w.notes = "Friday rest before Saturday long run"
-        elif weekday == 6:
-            w.workout_type = "rest"
-            w.description = "Rest"
-            w.target_pace = ""
-            w.hr_cap = None
-            w.notes = "Sunday rest after Saturday long run"
-        else:
-            w.workout_type = "easy"
-            w.description = "Easy run"
-            w.target_pace = "10:00-10:30"
-            w.hr_cap = config.easy_hr_cap()
-            w.notes = ""
-        return w, cw
+        return date.fromisoformat(str(a.get("start_date_local") or a.get("start_date"))[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_runs() -> list:
+    try:
+        return metrics.load_activities(activity_type="Run")
     except Exception:
-        return None, None
+        return []
 
 
-def _last_3_days_load() -> dict:
-    """Look at last 3 days of training to gauge fatigue."""
-    cache = Path(__file__).parent / "data" / "strava_cache" / "activities"
-    if not cache.exists():
-        return {"recent": [], "total_mi": 0, "total_min": 0, "avg_hr": 0}
-
-    cutoff = datetime.now().astimezone() - timedelta(days=3)
-    recent = []
-    for p in cache.glob("*.json"):
-        try:
-            a = json.loads(p.read_text())
-            dt = datetime.fromisoformat(a["start_date_local"].replace("Z", "+00:00"))
-            # Compare without timezone for simplicity (start_date_local is naive)
-            cutoff_naive = (datetime.now() - timedelta(days=3))
-            dt_naive = dt.replace(tzinfo=None)
-            if dt_naive >= cutoff_naive and a.get("type") == "Run":
-                recent.append(a)
-        except (json.JSONDecodeError, KeyError, ValueError):
-            continue
-
-    recent.sort(key=lambda x: x["start_date"], reverse=True)
-    total_mi = sum((a.get("distance", 0) or 0) / 1609.34 for a in recent)
-    total_min = sum((a.get("moving_time", 0) or 0) / 60 for a in recent)
+def _last_days_load(runs: list, today: Optional[date] = None, days: int = RECENT_DAYS) -> dict:
+    """What the last `days` days cost: runs, volume, average HR, longest run."""
+    today = today or date.today()
+    since = today - timedelta(days=days)
+    recent = [a for a in runs if (d := _run_date(a)) is not None and since < d <= today]
+    recent.sort(key=lambda a: str(a.get("start_date_local") or a.get("start_date") or ""), reverse=True)
+    dists = [(a.get("distance") or 0) / MI_M for a in recent]
     hrs = [a["average_heartrate"] for a in recent if a.get("average_heartrate")]
-    avg_hr = sum(hrs) / len(hrs) if hrs else 0
-
     return {
         "recent": recent,
-        "total_mi": total_mi,
-        "total_min": total_min,
-        "avg_hr": avg_hr,
+        "days": days,
+        "total_mi": sum(dists),
+        "total_min": sum((a.get("moving_time") or 0) / 60 for a in recent),
+        "avg_hr": (sum(hrs) / len(hrs)) if hrs else 0,
+        "longest_mi": max(dists, default=0.0),
     }
 
 
-def _fatigue_status(load_3d: dict) -> tuple[str, str]:
-    """Classify fatigue based on last 3 days. Returns (status, advice)."""
-    miles = load_3d["total_mi"]
-    runs = len(load_3d["recent"])
-    avg_hr = load_3d["avg_hr"]
+def _fatigue_status(load: dict, week: Optional[dict] = None) -> tuple:
+    """(status, advice). Thresholds come from this week's targets and the HR caps."""
+    miles = load["total_mi"]
+    n = len(load["recent"])
+    avg_hr = load["avg_hr"]
+    days = load.get("days", RECENT_DAYS)
+    target = float((week or {}).get("target_miles") or 0)
+    heavy_mi = max(8.0, HEAVY_BLOCK_FRACTION * target) if target else 12.0
+    long_tgt = float((week or {}).get("long_run_target") or 0)
+    long_mi = (max(config.long_run_min_mi(), LONG_RUN_FRACTION * long_tgt) if long_tgt
+               else config.long_run_min_mi())
+    hard = config.hard_hr_floor()
+    easy_cap = config.easy_hr_cap()
 
-    if runs == 0:
-        return "FRESH", "No runs in 3 days. Legs should be ready."
-    if runs >= 3 and miles >= 12:
-        return "FATIGUED", "Heavy 3-day block. Today should be easy or rest."
-    if runs >= 2 and avg_hr > 155:
-        return "ACCUMULATING", "Two recent hard efforts. Be honest with yourself today."
-    if runs == 1 and miles >= 7:
-        return "RECOVERING", "Long run in last 3 days. Easy effort only."
-    if avg_hr < 140 and miles < 8:
-        return "READY", "Recent runs were truly easy. You're set up for quality work."
+    if n == 0:
+        return "FRESH", f"No runs in {days} days. Legs should be ready."
+    if n >= 3 and miles >= heavy_mi:
+        return "FATIGUED", (f"Heavy {days}-day block: {units.fmt_dist(mi=miles)} against a "
+                            f"{units.fmt_dist(mi=target)} week. Today should be easy or rest."
+                            if target else
+                            f"Heavy {days}-day block ({units.fmt_dist(mi=miles)}). Today should be easy or rest.")
+    if n >= 2 and avg_hr > hard:
+        return "ACCUMULATING", (f"Two recent runs averaged above HR {hard:.0f}. Keep today honest: "
+                                "easy means easy.")
+    if load["longest_mi"] >= long_mi:
+        return "RECOVERING", (f"A {units.fmt_dist(mi=load['longest_mi'])} run in the last {days} days. "
+                              "Easy effort only.")
+    if avg_hr and avg_hr < easy_cap - TRULY_EASY_MARGIN and miles < heavy_mi:
+        return "READY", (f"Recent runs were truly easy (avg HR {avg_hr:.0f} under the {easy_cap:.0f} cap). "
+                         "You're set up for quality work.")
     return "MODERATE", "Normal training rhythm. Today is what you make it."
 
 
-def _race_countdown() -> tuple[int, str, str]:
-    """Days to active race. Returns (days, phase, race_name)."""
-    info = config.active_race()
-    race = date.fromisoformat(info["date"])
-    race_name = info["name"]
-
-    days = (race - date.today()).days
-    if days < 0:
-        return days, "Race already happened", race_name
-    if days == 0:
-        return 0, "RACE DAY", race_name
-    if days <= 7:
-        return days, "TAPER WEEK — protect freshness", race_name
-    if days <= 14:
-        return days, "Sharpening — quality over volume", race_name
-    if days <= 28:
-        return days, "Peak block — every session matters", race_name
-    return days, "Build phase", race_name
-
-
-def build_brief() -> str:
-    """Assemble the daily brief as a single string."""
-    today = date.today()
-    load_3d = _last_3_days_load()
-    fatigue, fatigue_note = _fatigue_status(load_3d)
-    days_to_race, phase, race_name = _race_countdown()
-    workout, week = _today_workout_from_plan()
-
-    # Consistency snapshot from metrics
+def _race_countdown(today: date, week: Optional[dict] = None) -> tuple:
+    """(days, phase, race_name). The plan's phase when there is one."""
     try:
-        from metrics import (load_activities, current_streak,
-                              eddington_progress, weeks_with_3plus_runs)
-        runs = load_activities(activity_type="Run")
-        streak = current_streak(runs)
-        ep = eddington_progress(runs)
-        w = weeks_with_3plus_runs(runs, weeks_window=8)
-        consistency_line = (f"  Consistency: streak {streak}d  |  "
-                             f"E={ep['current']} (need {ep['runs_needed_for_next']} "
-                             f"more {ep['next_n']}+mi for E{ep['next_n']})  |  "
-                             f"weeks @ 3+: {w['recent_4_weeks_3plus']}/4")
+        info = config.active_race(today)
+        race_day = date.fromisoformat(str(info["date"]))
+        name = info.get("name") or "race"
     except Exception:
-        consistency_line = None
+        return None, "", "no race set"
+    days = (race_day - today).days
+    if week:
+        try:
+            ph = mp.phase_by_id(week["phase"])
+            phase = ph["name"] if ph else str(week["phase"])
+        except Exception:
+            phase = str(week.get("phase", ""))
+        if days > 0:
+            return days, phase, name
+    if days < 0:
+        return days, "Race done", name
+    if days == 0:
+        return 0, "RACE DAY", name
+    if days <= 7:
+        return days, "Race week: protect freshness", name
+    if days <= 14:
+        return days, "Taper: sharp, not tired", name
+    if days <= 28:
+        return days, "Peak block: every session counts", name
+    return days, "Build", name
 
-    out = []
-    out.append("")
-    out.append("=" * 60)
-    out.append(f"  DAILY BRIEF  |  {today.strftime('%A, %B %d, %Y')}")
-    out.append("=" * 60)
-    out.append("")
-    out.append(f"  Race:       {race_name}  |  {days_to_race} days  |  {phase}")
-    out.append(f"  Fatigue:    {fatigue}  ({load_3d['total_mi']:.1f}mi in last 3 days, "
-               f"avg HR {load_3d['avg_hr']:.0f})")
+
+def _today_session(today: date, state: Optional[dict] = None) -> tuple:
+    """(day, week, standing_notes): today's session after standing notes, or (None, week, notes)."""
+    if not mp.has_plan():
+        return None, None, []
+    try:
+        state = state if state is not None else mp.load_state()
+        week = mp.current_week(today)
+        standing = mp.standing_notes(today, state)
+    except Exception:
+        return None, None, []
+    if not week:
+        return None, None, standing
+    try:
+        plan = mp.load_plan()
+        sessions = plan_layout.apply_notes(plan_layout.sessions_for_week(week, plan), standing)
+        day = dict(sessions[today.weekday()])
+        day["_paces"] = plan.get("paces") or {}
+        return day, week, standing
+    except Exception:
+        return None, week, standing
+
+
+def _consistency_line(runs: list) -> Optional[str]:
+    try:
+        streak = metrics.current_streak(runs)
+        ep = metrics.eddington_progress(runs)
+        w = metrics.weeks_with_3plus_runs(runs, weeks_window=8)
+        return (f"  Consistency: streak {streak}d  |  Eddington {ep['current']} "
+                f"({ep['runs_needed_for_next']} more runs of {units.fmt_dist(mi=ep['next_n'], nd=0)} "
+                f"for E{ep['next_n']})  |  weeks with 3+ runs: {w['recent_4_weeks_3plus']}/4")
+    except Exception:
+        return None
+
+
+def build_brief(today: Optional[date] = None, runs: Optional[list] = None) -> str:
+    """Assemble the daily brief as a single string."""
+    today = today or date.today()
+    runs = _load_runs() if runs is None else runs
+    day, week, standing = _today_session(today)
+    load = _last_days_load(runs, today)
+    fatigue, fatigue_note = _fatigue_status(load, week)
+    days_to_race, phase, race_name = _race_countdown(today, week)
+    consistency = _consistency_line(runs)
+
+    out = ["", "=" * 60, f"  DAILY BRIEF  |  {today.strftime('%A, %B %d, %Y')}", "=" * 60, ""]
+    if days_to_race is None:
+        out.append(f"  Race:       {race_name}")
+    else:
+        out.append(f"  Race:       {race_name}  |  {days_to_race} days  |  {phase}")
+    hr_txt = f", avg HR {load['avg_hr']:.0f}" if load["avg_hr"] else ""
+    out.append(f"  Fatigue:    {fatigue}  ({units.fmt_dist(mi=load['total_mi'])} in the last "
+               f"{load['days']} days{hr_txt})")
     out.append(f"  -> {fatigue_note}")
-    if consistency_line:
+    if consistency:
         out.append("")
-        out.append(consistency_line)
+        out.append(consistency)
     out.append("")
+
     out.append("-" * 60)
-    out.append("  TODAY'S WORKOUT")
+    head = f"  TODAY  |  {today.strftime('%a %b %d')}"
+    if week:
+        head += f"  |  plan wk{week['week_num']} of {mp.total_weeks()}"
+    out.append(head)
     out.append("-" * 60)
-    if workout:
-        wt = workout.workout_type.upper()
-        out.append(f"  Type:       {wt}")
-        out.append(f"  Plan:       {workout.description}")
-        if workout.target_pace:
-            out.append(f"  Pace:       {workout.target_pace}")
-        if workout.hr_cap:
-            out.append(f"  HR cap:     {workout.hr_cap}")
-        if workout.notes:
-            out.append(f"  Notes:      {workout.notes}")
+    if day:
+        paces = day.pop("_paces", {})
+        out.append(f"  Type:       {str(day.get('role', '')).upper()}")
+        out.append(f"  Session:    {plan_layout.format_session(day, paces)}")
+        if day.get("strides"):
+            out.append(f"  Strides:    {day['strides']} x 15-20 s, relaxed and fast, full recovery")
+        if day.get("strength"):
+            out.append("  Strength:   lift today (after the run, or on its own)")
+        if week:
+            wk = (f"  This week:  {units.fmt_dist(mi=week['target_miles'])}, long run "
+                  f"{units.fmt_dist(mi=week['long_run_target'])}")
+            if week.get("key_workout"):
+                wk += f".  Key: {week['key_workout']}"
+            out.append(wk)
+    elif not mp.has_plan():
+        out.append("  No plan yet. Say \"build me a plan\" (or: python3 coach.py plan --from-data).")
+        out.append("  Until then the brief tracks fatigue and consistency only.")
+    elif week is None:
+        try:
+            weeks = mp.all_weeks()
+            start = date.fromisoformat(weeks[0]["start_date"])
+            end = date.fromisoformat(weeks[-1]["start_date"]) + timedelta(days=6)
+            out.append(f"  Outside the plan window ({start.isoformat()} to {end.isoformat()}).")
+        except Exception:
+            out.append("  Outside the plan window.")
     else:
-        out.append(f"  No workout scheduled for {today}.")
-        out.append(f"  Today may be outside the current plan window.")
-        out.append(f"  Re-run python3 planner.py to regenerate the short-race plan.")
+        out.append("  No session found for today in the plan.")
+    if standing:
+        out.append("")
+        out.append("  Standing notes:")
+        for n in standing:
+            out.append(f"    - {n['text']} (until {n['until']})")
     out.append("")
+
     out.append("-" * 60)
-    out.append("  LAST 3 DAYS")
+    out.append(f"  LAST {load['days']} DAYS")
     out.append("-" * 60)
-    if load_3d["recent"]:
-        for r in load_3d["recent"]:
-            dt = r["start_date_local"][:10]
-            dist = (r.get("distance", 0) or 0) / 1609.34
-            mt = (r.get("moving_time", 0) or 0) / 60
-            pace = mt / dist if dist > 0 else 0
-            pace_str = f"{int(pace)}:{int((pace%1)*60):02d}/mi" if pace > 0 else "N/A"
-            hr = r.get("average_heartrate", "—")
-            out.append(f"  {dt} | {dist:.1f}mi | {pace_str:>9} | HR {hr}")
+    if load["recent"]:
+        for a in load["recent"]:
+            d = _run_date(a)
+            dist_mi = (a.get("distance") or 0) / MI_M
+            mt = (a.get("moving_time") or 0) / 60
+            pace = mt / dist_mi if dist_mi > 0 else 0
+            hr = a.get("average_heartrate")
+            try:
+                kind = enrichment.classify_run(a).replace("_", " ")
+            except Exception:
+                kind = ""
+            out.append(f"  {d.isoformat() if d else '?'} | {units.fmt_dist(mi=dist_mi):>8} | "
+                       f"{units.fmt_pace(pace):>10} | {('HR %.0f' % hr) if hr else 'no HR':<7} | {kind}")
     else:
-        out.append("  No runs in last 3 days.")
+        out.append(f"  No runs in the last {load['days']} days.")
     out.append("")
     out.append("=" * 60)
-    out.append("  Honor the work. Show up. Run the plan.")
+    out.append("  Show up. Run the plan. Easy days easy.")
     out.append("=" * 60)
     out.append("")
     return "\n".join(out)
 
 
-def save_brief(text: str | None = None) -> Path:
+def save_brief(text: Optional[str] = None, today: Optional[date] = None) -> Path:
     """Write the brief to plan_output/brief.md and return the path."""
     if text is None:
-        text = build_brief()
+        text = build_brief(today)
     BRIEF_PATH.parent.mkdir(parents=True, exist_ok=True)
     BRIEF_PATH.write_text(text, encoding="utf-8")
     return BRIEF_PATH
 
 
-def print_brief(save: bool = False):
+def print_brief(save: bool = False, today: Optional[date] = None) -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-    text = build_brief()
+    text = build_brief(today)
     print(text)
     if save:
         save_brief(text)
+    return 0
+
+
+def main(argv: Optional[list] = None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
+    today = None
+    if "--date" in args:
+        today = date.fromisoformat(args[args.index("--date") + 1])
+    return print_brief(save="--save" in args, today=today)
 
 
 if __name__ == "__main__":
-    save_flag = "--save" in sys.argv[1:]
-    print_brief(save=save_flag)
+    sys.exit(main())

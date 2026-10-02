@@ -3,19 +3,22 @@
 Usage:
     python3 coach.py            # full coaching report (default)
     python3 coach.py brief      # daily brief only
-    python3 coach.py review     # post-run review (latest run)
+    python3 coach.py review [<id>] [--json]  # post-run review (latest run by default)
     python3 coach.py fitness    # fitness tracker (CTL/ATL/TSB)
     python3 coach.py forecast   # race forecast
     python3 coach.py week       # weekly check-in
     python3 coach.py dashboard  # regenerate the HTML dashboard
     python3 coach.py sync       # sync from Strava + full report
     python3 coach.py scenario   # base-build scenarios (20/25/30 -> peak -> marathon)
-    python3 coach.py plan       # generate a parametric 16-week marathon plan
-    python3 coach.py analyze --from-mcp <file.json>  # ingest Strava MCP JSON, then report
+    python3 coach.py plan [--from-data|--entry N] [--days 4 --long-day sun --quality strides] [--ics]
+    python3 coach.py ingest data/mcp/   # merge Strava MCP payloads (list/perf/streams) into the cache
+    python3 coach.py analyze [data/mcp/]  # ingest, then the full report + base-build scenarios
     python3 coach.py reconcile  # record actual-vs-planned into plan_state.json
-    python3 coach.py note "..." # log an in-the-moment adjustment to this week
+    python3 coach.py note "..." [--until YYYY-MM-DD]  # log an adjustment; --until keeps it in force
     python3 coach.py trends     # long-horizon lenses: drift, efficiency, recovery
+    python3 coach.py status [--json]  # what the coach has and what it still needs
     python3 coach.py init       # first-run setup wizard
+    python3 coach.py init --from-mcp data/mcp/ [--goal-time H:MM:SS]  # config from your Strava profile, zones, history
 
 Examples:
     python3 coach.py scenario --entry 20,25,30
@@ -25,6 +28,8 @@ Examples:
 import sys
 import subprocess
 from pathlib import Path
+
+import config
 
 
 SCRIPT_DIR = Path(__file__).parent
@@ -55,7 +60,6 @@ def _auto_reconcile():
     degrades to a one-line notice otherwise so sync/analyze never break.
     """
     try:
-        import config
         if not config.has_structured_plan(config.active_race()):
             return
         from reconcile import reconcile
@@ -65,8 +69,8 @@ def _auto_reconcile():
 
 
 def _has_any_data() -> bool:
-    csv_path = SCRIPT_DIR / "activities.csv"
-    cache = SCRIPT_DIR / "data" / "strava_cache" / "activities"
+    csv_path = config.CSV_PATH
+    cache = config.ACTIVITIES_DIR
     return csv_path.exists() or (cache.exists() and any(cache.glob("*.json")))
 
 
@@ -104,7 +108,6 @@ def full_report(save_brief: bool = False):
     _run_module("weekly_check")
 
     # Off by default: a pep talk reads differently on someone else's terminal.
-    import config
     if config.report_cfg().get("motivational_footer", False):
         print()
         print("=" * 70)
@@ -129,7 +132,7 @@ def main():
     routes = {
         "full": full_report,
         "brief": lambda: _run_module("daily_brief"),
-        "review": lambda: _run_module("post_run_review"),
+        "review": lambda: _run_module("post_run_review", extra),
         "fitness": lambda: _run_module("fitness_tracker"),
         "forecast": lambda: _run_module("race_predictor"),
         "metrics": lambda: _run_module("metrics"),
@@ -140,14 +143,33 @@ def main():
         "reconcile": lambda: _run_module("reconcile", extra),
         "trends": lambda: _run_module("trends"),
         "init": lambda: _run_module("wizard", extra),
+        "status": lambda: _run_module("status", extra),
     }
 
     if cmd == "note":
-        if not extra:
-            print('Usage: python3 coach.py note "what changed and why"')
+        until, words = None, []
+        i = 0
+        while i < len(extra):
+            a = extra[i]
+            if a == "--until" and i + 1 < len(extra):
+                until = extra[i + 1]
+                i += 2
+                continue
+            if a.startswith("--until="):
+                until = a.split("=", 1)[1]
+            else:
+                words.append(a)
+            i += 1
+        text = " ".join(words).strip()
+        if not text:
+            print('Usage: python3 coach.py note "what changed and why" [--until YYYY-MM-DD]')
             sys.exit(1)
         from reconcile import add_note
-        add_note(" ".join(extra))
+        try:
+            add_note(text, until=until)
+        except ValueError:
+            print(f"  [coach] --until needs a date like 2026-11-15, got {until!r}")
+            sys.exit(1)
         return
 
     if cmd == "sync":
@@ -159,50 +181,31 @@ def main():
         _run_module("dashboard")
         return
 
+    if cmd == "ingest":
+        # Merge Strava MCP payloads (list pages + perf/<id>.json + streams/<id>.json)
+        # into the cache. `ingest` with no path reads data/mcp/.
+        sys.exit(_run_module("mcp_adapter", extra))
+
     if cmd == "analyze":
-        # Ingest Strava MCP list_activities JSON dump(s), then report. Lets any
-        # Claude session with the Strava MCP drive the coach with no OAuth/sync.
-        # Multiple files = multiple pages from the has_next_page/end_cursor
-        # loop; --performance folds in get_activity_performance payloads
-        # (HR + laps) so TSS goes HR-based and lap analysis lights up.
-        from mcp_adapter import ingest_mcp_file
-        paths = []
-        performance = None
-        i = 0
-        while i < len(extra):
-            a = extra[i]
-            if a == "--from-mcp" and i + 1 < len(extra):
-                paths.append(extra[i + 1])
-                i += 2
-            elif a.startswith("--from-mcp="):
-                paths.append(a.split("=", 1)[1])
-                i += 1
-            elif a == "--performance" and i + 1 < len(extra):
-                performance = extra[i + 1]
-                i += 2
-            elif a.startswith("--performance="):
-                performance = a.split("=", 1)[1]
-                i += 1
-            elif not a.startswith("-") and paths:
-                paths.append(a)  # extra page files after --from-mcp
-                i += 1
-            else:
-                i += 1
-        if not paths:
-            print("Usage: python3 coach.py analyze --from-mcp <file.json>... "
-                  "[--performance <file-or-dir>]")
+        # Ingest, then the whole report. Lets any Claude session with the
+        # Strava MCP drive the coach with no OAuth/sync. Legacy
+        # `--from-mcp <file> [--performance <f>]` still works.
+        import mcp_adapter
+        try:
+            opts = mcp_adapter.parse_cli(extra)
+        except ValueError as e:
+            print(f"  [mcp] {e}")
+            print("Usage: python3 coach.py analyze [data/mcp/ | <files...>]")
             sys.exit(1)
-        summary = ingest_mcp_file(paths, performance=performance)
-        print(f"Ingested {summary['written']} activities from {len(paths)} file(s)")
-        for t, c in sorted(summary["by_type"].items()):
-            print(f"  {t:14} {c}")
-        if summary.get("performance_merged"):
-            print(f"  performance merged into {summary['performance_merged']} activities")
+        res = mcp_adapter.run_merge(opts["paths"], dry_run=opts["dry_run"])
+        if opts["dry_run"]:
+            return
         _auto_reconcile()
-        _section("RACE FORECAST")
-        _run_module("race_predictor")
+        full_report(save_brief=True)
         _section("BASE-BUILD SCENARIOS")
         _run_module("scenario")
+        if res["import"] and res["import"]["written"] == 0:
+            sys.exit(1)
         return
 
     if cmd not in routes:
@@ -210,7 +213,8 @@ def main():
         print(__doc__)
         sys.exit(1)
 
-    routes[cmd]()
+    rc = routes[cmd]()
+    sys.exit(rc if isinstance(rc, int) else 0)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {
   "_meta": {
     "schema_version": 1,
-    "description": "Example 24-week sub-3:45 marathon plan. Periodized with an extended base plus cutback weeks. This is a template: edit the race block, the week entries, and the dates to fit your own goal race, then point config.json -> races[].plan at this file."
+    "description": "Example 24-week marathon plan showing the schema. You normally do not hand-write one of these: `python3 coach.py plan --from-data` generates a plan for the active race from your mileage, days per week and preferences, at data/<race_id>.generated.json. To use a hand-made plan instead, point config.json -> races[].plan at your file. Weeks may carry `days` (seven day-level sessions), `quality` (the week's key session) and `long_run_time_cap_min`; see weeks 1 and 10 here."
   },
   "race": {
     "id": "city_marathon",
@@ -13,21 +13,78 @@
     "vdot_required": 40.0
   },
   "paces": {
-    "easy":          {"min": 10.0,  "max": 10.5},
-    "long_run":      {"min": 9.75,  "max": 10.25},
+    "easy": {
+      "min": 10.0,
+      "max": 10.5
+    },
+    "long_run": {
+      "min": 9.75,
+      "max": 10.25
+    },
     "marathon_pace": 8.583,
-    "tempo":         {"min": 8.17,  "max": 8.42},
-    "threshold":     {"min": 7.92,  "max": 8.17},
-    "vo2max":        {"min": 7.5,   "max": 7.58}
+    "tempo": {
+      "min": 8.17,
+      "max": 8.42
+    },
+    "threshold": {
+      "min": 7.92,
+      "max": 8.17
+    },
+    "vo2max": {
+      "min": 7.5,
+      "max": 7.58
+    }
   },
   "phases": [
-    {"id": "recovery",  "name": "Recovery",       "color": "#DCE3F4", "start_week": 1,  "end_week": 2},
-    {"id": "base",      "name": "Base Building",  "color": "#A9BCE6", "start_week": 3,  "end_week": 7},
-    {"id": "build_a",   "name": "Build Block A",  "color": "#6E8BD0", "start_week": 8,  "end_week": 11},
-    {"id": "build_b",   "name": "Build Block B",  "color": "#2F56B3", "start_week": 12, "end_week": 15},
-    {"id": "build_c",   "name": "Build Block C",  "color": "#2F56B3", "start_week": 16, "end_week": 17},
-    {"id": "peak",      "name": "Peak",           "color": "#002FA7", "start_week": 18, "end_week": 21},
-    {"id": "taper",     "name": "Taper + Race",   "color": "#6E8BD0", "start_week": 22, "end_week": 24}
+    {
+      "id": "recovery",
+      "name": "Recovery",
+      "color": "#DCE3F4",
+      "start_week": 1,
+      "end_week": 2
+    },
+    {
+      "id": "base",
+      "name": "Base Building",
+      "color": "#A9BCE6",
+      "start_week": 3,
+      "end_week": 7
+    },
+    {
+      "id": "build_a",
+      "name": "Build Block A",
+      "color": "#6E8BD0",
+      "start_week": 8,
+      "end_week": 11
+    },
+    {
+      "id": "build_b",
+      "name": "Build Block B",
+      "color": "#2F56B3",
+      "start_week": 12,
+      "end_week": 15
+    },
+    {
+      "id": "build_c",
+      "name": "Build Block C",
+      "color": "#2F56B3",
+      "start_week": 16,
+      "end_week": 17
+    },
+    {
+      "id": "peak",
+      "name": "Peak",
+      "color": "#002FA7",
+      "start_week": 18,
+      "end_week": 21
+    },
+    {
+      "id": "taper",
+      "name": "Taper + Race",
+      "color": "#6E8BD0",
+      "start_week": 22,
+      "end_week": 24
+    }
   ],
   "weeks": [
     {
@@ -279,10 +336,31 @@
       "name": "End of Base Phase",
       "description": "Are you ready to add quality?",
       "criteria": [
-        {"metric": "ctl",                 "op": ">=", "value": 32, "label": "CTL >= 32"},
-        {"metric": "longest_run_30d_mi",  "op": ">=", "value": 13, "label": "Completed 13mi+ long run"},
-        {"metric": "weeks_at_4plus_of_4", "op": ">=", "value": 3,  "label": "3+ of last 4 weeks at 4+ runs"},
-        {"metric": "tempo_4mi_test_pace", "op": "<=", "value": 8.5, "label": "4mi tempo test held 8:30/mi", "optional": true}
+        {
+          "metric": "ctl",
+          "op": ">=",
+          "value": 32,
+          "label": "CTL >= 32"
+        },
+        {
+          "metric": "longest_run_30d_mi",
+          "op": ">=",
+          "value": 13,
+          "label": "Completed 13mi+ long run"
+        },
+        {
+          "metric": "weeks_at_4plus_of_4",
+          "op": ">=",
+          "value": 3,
+          "label": "3+ of last 4 weeks at 4+ runs"
+        },
+        {
+          "metric": "tempo_4mi_test_pace",
+          "op": "<=",
+          "value": 8.5,
+          "label": "4mi tempo test held 8:30/mi",
+          "optional": true
+        }
       ],
       "downgrade_action": "Stay in base 2 more weeks; reduce build mileage targets 10%"
     },
@@ -293,10 +371,30 @@
       "name": "End of Marathon-Specific Block",
       "description": "Is 3:45 still realistic?",
       "criteria": [
-        {"metric": "ctl",                          "op": ">=", "value": 45, "label": "CTL >= 45"},
-        {"metric": "longest_run_30d_mi",           "op": ">=", "value": 18, "label": "18mi+ long run completed"},
-        {"metric": "weekly_mi_4wk_avg",            "op": ">=", "value": 42, "label": "42+ mpw avg over last 4 weeks"},
-        {"metric": "no_recent_injury_sidelined",   "op": "==", "value": true, "label": "No injury sidelining > 3 days"}
+        {
+          "metric": "ctl",
+          "op": ">=",
+          "value": 45,
+          "label": "CTL >= 45"
+        },
+        {
+          "metric": "longest_run_30d_mi",
+          "op": ">=",
+          "value": 18,
+          "label": "18mi+ long run completed"
+        },
+        {
+          "metric": "weekly_mi_4wk_avg",
+          "op": ">=",
+          "value": 42,
+          "label": "42+ mpw avg over last 4 weeks"
+        },
+        {
+          "metric": "no_recent_injury_sidelined",
+          "op": "==",
+          "value": true,
+          "label": "No injury sidelining > 3 days"
+        }
       ],
       "downgrade_action": "Adjust race target to sub-4:00; cap MP work at 6mi; reduce peak mileage to 50"
     },
@@ -307,10 +405,31 @@
       "name": "End of Peak Phase",
       "description": "Race day execution check",
       "criteria": [
-        {"metric": "ctl",                       "op": ">=", "value": 50, "label": "CTL >= 50"},
-        {"metric": "longest_run_30d_mi",        "op": ">=", "value": 20, "label": "20mi+ long run completed"},
-        {"metric": "mp_segment_completed_mi",   "op": ">=", "value": 12, "label": "12+ mi at MP completed in any single run"},
-        {"metric": "recovery_quality",          "op": "==", "value": true, "label": "Recovered from 22mi within 5 days", "optional": true}
+        {
+          "metric": "ctl",
+          "op": ">=",
+          "value": 50,
+          "label": "CTL >= 50"
+        },
+        {
+          "metric": "longest_run_30d_mi",
+          "op": ">=",
+          "value": 20,
+          "label": "20mi+ long run completed"
+        },
+        {
+          "metric": "mp_segment_completed_mi",
+          "op": ">=",
+          "value": 12,
+          "label": "12+ mi at MP completed in any single run"
+        },
+        {
+          "metric": "recovery_quality",
+          "op": "==",
+          "value": true,
+          "label": "Recovered from 22mi within 5 days",
+          "optional": true
+        }
       ],
       "downgrade_action": "Race conservatively: target 8:50 first half, see how legs feel. C goal sub-4:00."
     }

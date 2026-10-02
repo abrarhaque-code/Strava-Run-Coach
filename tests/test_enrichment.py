@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import config
+import enrichment
 from enrichment import (
     ENRICHMENT_VERSION, bike_equiv_mps, classify_activity, enrich, is_real_run,
     needs_enrichment,
@@ -213,3 +215,77 @@ class TestFitnessSessions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# classify_run: the one run classifier (enrichment, review, predictor agree)
+# ---------------------------------------------------------------------------
+
+class TestClassifyRun(unittest.TestCase):
+    """The fixture that drove this: a real 8 x 800 whose recovery-diluted
+    average HR (138.6, under the easy cap) read EASY and scored A/100."""
+
+    AUG19 = {"distance": 8250.8, "moving_time": 2449, "elapsed_time": 4188,
+             "average_heartrate": 138.627, "max_heartrate": 161, "description": "8x800"}
+
+    def test_rep_session_is_intervals_not_easy(self):
+        self.assertTrue(enrichment.looks_like_intervals(self.AUG19))
+        self.assertEqual(enrichment.classify_run(self.AUG19), "intervals")
+        self.assertLess(self.AUG19["average_heartrate"], config.easy_hr_cap())
+
+    def test_shape_alone_detects_reps(self):
+        quiet = dict(self.AUG19)
+        quiet.pop("description")
+        self.assertEqual(enrichment.classify_run(quiet), "intervals")
+
+    def test_long_run_with_stops_is_not_intervals(self):
+        jul31 = {"distance": 19322, "moving_time": 6677, "elapsed_time": 8050,
+                 "average_heartrate": 157.9, "max_heartrate": 178}
+        self.assertFalse(enrichment.looks_like_intervals(jul31))
+        self.assertEqual(enrichment.classify_run(jul31), "long")
+
+    def test_stop_heavy_16_miler_is_long_not_intervals(self):
+        aug29 = {"distance": 26016.6, "moving_time": 8708, "elapsed_time": 11603,
+                 "average_heartrate": 159.341, "max_heartrate": 186,
+                 "description": "Super salty one"}
+        self.assertLess(aug29["moving_time"] / aug29["elapsed_time"],
+                        enrichment.INTERVAL_MOVING_RATIO)
+        self.assertEqual(enrichment.classify_run(aug29), "long")
+
+    def test_easy_run_is_easy(self):
+        aug18 = {"distance": 10474.6, "moving_time": 3726, "elapsed_time": 4024,
+                 "average_heartrate": 134.282, "max_heartrate": 143}
+        self.assertEqual(enrichment.classify_run(aug18), "easy")
+
+    def test_named_session_without_stops_is_intervals(self):
+        named = {"distance": 8000, "moving_time": 2400, "elapsed_time": 2400,
+                 "average_heartrate": 150, "max_heartrate": 170, "name": "6x1k"}
+        self.assertEqual(enrichment.classify_run(named), "intervals")
+
+    def test_stated_intent_wins(self):
+        tempo = {"distance": 6 * 1609.34, "moving_time": 3300, "elapsed_time": 3300,
+                 "average_heartrate": 142, "description": "1 wu, 4 tempo, 1 cd"}
+        self.assertEqual(enrichment.classify_run(tempo), "tempo")
+        long_with_block = {"distance": 18 * 1609.34, "moving_time": 10800, "elapsed_time": 11000,
+                           "average_heartrate": 150, "description": "13 easy, 3 hmp, 2 easy"}
+        self.assertEqual(enrichment.classify_run(long_with_block), "long")
+
+    def test_no_hr_falls_back_to_pace(self):
+        fast = {"distance": 5 * 1609.34, "moving_time": int(5 * 8.5 * 60), "elapsed_time": 2600}
+        self.assertEqual(enrichment.classify_run(fast), "tempo")
+        slow = {"distance": 5 * 1609.34, "moving_time": int(5 * 10.2 * 60), "elapsed_time": 3100}
+        self.assertEqual(enrichment.classify_run(slow), "easy")
+
+    def test_low_average_hr_alone_is_not_a_walk(self):
+        under = {"distance": 5 * 1609.34, "moving_time": 3000, "elapsed_time": 3000,
+                 "average_heartrate": 105}
+        self.assertNotEqual(enrichment.classify_run(under), "walk")
+        walk = {"distance": 3 * 1609.34, "moving_time": int(3 * 14 * 60), "elapsed_time": 2600}
+        self.assertEqual(enrichment.classify_run(walk), "walk")
+
+    def test_enrich_stamps_workout_type_and_version(self):
+        a = enrichment.enrich(dict(self.AUG19, id=1, type="Run", max_speed=5.0,
+                                   start_date_local="2026-08-19T19:00:00"))
+        self.assertEqual(a["_workout_type"], "intervals")
+        self.assertEqual(a["_enriched_v"], enrichment.ENRICHMENT_VERSION)
+        self.assertGreaterEqual(enrichment.ENRICHMENT_VERSION, 4)

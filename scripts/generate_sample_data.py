@@ -23,7 +23,6 @@ Stdlib only, plus the project's enrichment module.
 
 import csv
 import json
-import math
 import random
 import sys
 from datetime import date, datetime, timedelta
@@ -35,10 +34,11 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import config  # noqa: E402
 import enrichment  # noqa: E402
 
-CSV_PATH = _ROOT / "activities.csv"
-CACHE_DIR = _ROOT / "data" / "strava_cache" / "activities"
+CSV_PATH = config.CSV_PATH
+CACHE_DIR = config.ACTIVITIES_DIR
 
 MI = 1609.34  # meters per mile
 SEED = 20260601
@@ -169,6 +169,7 @@ def _make_run(dt: datetime, name: str, dist_mi: float, pace: float,
 
     d = {
         "id": None,  # filled by caller
+        "_source": "sample",
         "name": name,
         "type": "Run",
         "start_date": _iso_local(dt),       # treat as naive local for samples
@@ -224,6 +225,7 @@ def _make_lift(dt: datetime, name: str, rng: random.Random) -> dict:
     elapsed_s = rng.randint(30, 50) * 60
     return {
         "id": None,
+        "_source": "sample",
         "name": name,
         "type": "Weight Training",
         "start_date": _iso_local(dt),
@@ -458,7 +460,7 @@ def main() -> None:
     print(f"  Date range:        {start.isoformat()} -> {end.isoformat()}")
     print(f"  Activities:        {len(activities)} "
           f"({len(runs)} runs, {len(lifts)} lifts)")
-    print(f"  Total run mileage: {total_mi:.1f} mi")
+    print(f"  Total run volume: {total_mi:.1f} mi")
     print(f"  Runs w/ splits:    {n_be}")
     print(f"  CSV rows written:  {n_csv}  ->  {CSV_PATH.name}")
     print(f"  Cache JSON files:  {n_cache}  ->  "

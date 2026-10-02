@@ -1,13 +1,13 @@
 ---
 name: race-forecast
-description: Predict race time and goal probability from current fitness (Daniels VDOT), and explore what-if mileage scenarios. Use when the user asks "can I run 3:45", "what's my predicted marathon/half time", "what's my VDOT", "goal probability", or "what if I trained at 30 miles a week".
+description: Predict the race time and goal probability from current fitness (Daniels VDOT, real runs only), say what would move the number, and explore what-if volume scenarios. Use for "can I run 3:45", "what's my predicted marathon time", "what's my VDOT", "goal probability", "what if I trained at 50 km a week".
 ---
 
-# Race forecast + scenarios
+# Race forecast and scenarios
 
-Run from the strava-run-coach repo root (see the `strava-coach-analyze`
-skill, step 0, if there is no checkout). If the data is stale, refresh it
-first via that skill's ingestion steps.
+Engine location and voice: see `strava-coach-analyze` step 0 and
+`docs/COACHING.md`. Stale data (`status --json` -> `newest_activity`): refresh
+with that skill's step 3 first.
 
 ## 1. Forecast
 
@@ -15,30 +15,37 @@ first via that skill's ingestion steps.
 python3 coach.py forecast
 ```
 
-This prints the current VDOT anchor (best recent effort or a race result
-from config `race_history`), the predicted time for the active race, the
-gap to goal, and a probability verdict.
+It prints the fitness anchor (the best recent whole run or best effort, or a
+race result from `race_history`; rep sessions are excluded because reps read
+as one continuous run inflate VDOT), the predicted time and pace for the
+active race, the gap to the goal, a probability with its verdict, three
+things to do about the gap drawn from the athlete's own zones and plan week,
+and the 14-day trend against the prior 30.
 
-## 2. What-if mileage questions
+## 2. What-if volume
 
 ```bash
-python3 coach.py scenario --entry 20,25,30    # or the user's numbers
+python3 coach.py scenario --entry 30,40,50      # in the athlete's unit; "50km" also works
 ```
 
-Each entry mileage implies a peak and a marathon-time RANGE anchored on the
-best recent ENDURANCE effort (a half or long run — deliberately not a 5K,
-which over-predicts marathon fitness).
+Each entry volume implies a peak, a long-run peak and a marathon-time RANGE
+anchored on the best recent ENDURANCE effort (a half or a long run; a 5K
+over-predicts marathon fitness), plus whether the base is reachable before
+the block starts.
 
 ## 3. Relay
 
-- Lead with predicted time vs goal and the probability verdict.
-- Explain the anchor: which effort/race the VDOT came from and when.
-- Present scenario outputs as planning bands, not promises; the ramp rates
-  are guardrails (see docs/METHODOLOGY.md for the honest caveats).
-- If the gap is large, say what would actually move it (volume and
-  consistency, per the model) rather than softening the number.
+- Predicted time vs goal and the probability as a band ("a coin flip that
+  leans against you"), then the anchor: which effort, when.
+- The "what you need to do" lines are the engine's; pick the one that
+  matters most and say why.
+- Scenario outputs are planning bands, not promises; the ramp rates are
+  guardrails (`docs/METHODOLOGY.md`).
+- A big gap gets named plainly, with what moves it (volume and consistency,
+  per the model), not softened.
 
 ## Never
 
-- Hand-compute VDOT or invent probabilities — run the engine.
-- Present a single scenario number without its range.
+- Hand-compute VDOT or invent a probability.
+- Quote a scenario number without its range.
+- Read fitness trend off under 60 days of history.

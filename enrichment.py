@@ -15,14 +15,13 @@ Usage:
     # Now has _enriched_v, _workout_type, _pace_zone, _run_tss, etc.
 """
 
-from typing import Optional
 
 import config
 
 
 # Bump this when enrichers are added or their logic changes.
 # All cached activities with a lower _enriched_v will be re-enriched on next sync.
-ENRICHMENT_VERSION = 3
+ENRICHMENT_VERSION = 4
 
 # Tolerance around the bike-equivalence speed signature. The signature itself
 # is derived from config (see bike_equiv_mps) so the "N min bike = 1 mi"
@@ -186,46 +185,136 @@ def attach_pace_zone(activity: dict) -> dict:
     return activity
 
 
-def attach_workout_type(activity: dict) -> dict:
-    """Classify the run's training purpose.
+# ---------------------------------------------------------------------------
+# What kind of run was it? (single source of truth; the review and the
+# predictor read this too, so the cache, the debrief and VDOT always agree)
+# ---------------------------------------------------------------------------
 
-    Wraps post_run_review.classify_run logic but keeps it self-contained so we
-    don't pull in the API client just to enrich.
+# A rep session spends a third of its elapsed time standing: moving/elapsed
+# under this ratio on a run under INTERVAL_MAX_DIST_MI is the shape of a track
+# night. The distance guard is load-bearing: a 3-hour long run through traffic
+# lights can dip under the ratio too.
+INTERVAL_MOVING_RATIO = 0.80
+INTERVAL_MAX_DIST_MI = 8.0
+
+RUN_KINDS = ("easy", "recovery", "long", "tempo", "threshold", "intervals",
+             "walk", "general_aerobic", "unknown")
+
+
+def looks_like_intervals(a: dict) -> bool:
+    """Detect a rep session from its shape or its title, never its average HR.
+
+    Average HR over a session that is one-third standing recovery comes out
+    under the easy cap, so an 8 x 800 would score as a clean easy run and
+    the reps would never be looked at.
     """
+    dist_mi = (a.get("distance", 0) or 0) / 1609.34
+    moving = a.get("moving_time") or 0
+    elapsed = a.get("elapsed_time") or 0
+    if (moving and elapsed and dist_mi
+            and moving / elapsed < INTERVAL_MOVING_RATIO
+            and dist_mi < INTERVAL_MAX_DIST_MI):
+        return True
+    try:
+        import intervals
+        for field in ("description", "name"):
+            if a.get(field) and intervals.parse_prescription(str(a[field])):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+_INTENT_KIND = {"tempo": "tempo", "half": "tempo", "mp": "tempo", "steady": "tempo",
+                "progression": "tempo", "10k": "threshold", "5k": "threshold"}
+
+
+def _stated_kind(a: dict, dist_mi: float):
+    """The run kind the description or title commits to, or None."""
+    try:
+        import session_intent
+    except Exception:
+        return None
+    for field in ("description", "name"):
+        if not a.get(field):
+            continue
+        try:
+            intent = session_intent.parse_intent(str(a[field]), dist_mi)
+        except Exception:
+            intent = None
+        if not intent:
+            continue
+        quality = session_intent.quality_segments(intent)
+        if not quality:
+            return "easy"
+        if dist_mi >= config.long_run_min_mi():
+            return "long"
+        dominant = max(quality, key=lambda s: s.get("miles") or 0)
+        return _INTENT_KIND.get(dominant["kind"], "tempo")
+    return None
+
+
+def classify_run(a: dict) -> str:
+    """One of RUN_KINDS for a real run.
+
+    Order: what the description says -> the shape of a rep session -> walking
+    pace -> long-run distance -> HR and pace against the configured zones
+    (pace alone when there is no HR). A low average HR by itself never means
+    "walk": an optical under-read is not a walk; only pace is.
+    """
+    dist_m = a.get("distance", 0) or 0
+    moving_s = a.get("moving_time", 0) or 0
+    if dist_m <= 0 or moving_s <= 0:
+        return "unknown"
+    dist_mi = dist_m / 1609.34
+    pace = (moving_s / 60) / dist_mi
+    avg_hr = a.get("average_heartrate") or 0
+    max_hr = a.get("max_heartrate") or 0
+
+    stated = _stated_kind(a, dist_mi)
+    if stated:
+        return stated
+    if looks_like_intervals(a):
+        return "intervals"
+    if pace >= 13:
+        return "walk"
+    if dist_mi >= config.long_run_min_mi():
+        return "long"
+
+    pz = config.pace_zones()
+    easy_floor = float((pz.get("easy") or {}).get("floor", 10.5))
+    tempo_lo, tempo_hi = (pz.get("tempo") or {}).get("hr_range", [150, 160])[:2]
+    thr_lo, thr_hi = (pz.get("threshold") or {}).get("hr_range", [160, 170])[:2]
+    if avg_hr:
+        if avg_hr < config.recovery_hr_cap() and pace > easy_floor:
+            return "recovery"
+        if tempo_lo <= avg_hr <= tempo_hi:
+            return "tempo"
+        if thr_lo <= avg_hr <= thr_hi:
+            return "threshold"
+        if max_hr and max_hr >= config.threshold_hr_upper() and avg_hr <= config.easy_hr_cap():
+            return "intervals"
+        if avg_hr < config.easy_hr_cap():
+            return "easy"
+        return "general_aerobic"
+    # No HR: pace against the configured bands (floor = slower edge).
+    thr_floor = float((pz.get("threshold") or {}).get("floor", 8.5))
+    tempo_floor = float((pz.get("tempo") or {}).get("floor", 9.17))
+    if pace < thr_floor:
+        return "threshold"
+    if pace <= tempo_floor:
+        return "tempo"
+    return "easy"
+
+
+def attach_workout_type(activity: dict) -> dict:
+    """Stamp the run's training purpose (see classify_run)."""
     if activity.get("type") != "Run":
         return activity
     if not is_real_run(activity):
         activity["_workout_type"] = "n/a"
         return activity
-
-    dist_m = activity.get("distance", 0) or 0
-    moving_s = activity.get("moving_time", 0) or 0
-    if dist_m == 0 or moving_s == 0:
-        activity["_workout_type"] = "unknown"
-        return activity
-
-    dist_mi = dist_m / 1609.34
-    pace = (moving_s / 60) / dist_mi
-    avg_hr = activity.get("average_heartrate") or 0
-    max_hr = activity.get("max_heartrate") or 0
-
-    # Order matters — most specific first
-    if pace >= 13 or (avg_hr and avg_hr < 110):
-        wt = "walk"
-    elif avg_hr and avg_hr < 130 and pace > 10.5:
-        wt = "recovery"
-    elif dist_mi >= 7:
-        wt = "long"
-    elif avg_hr and 145 <= avg_hr <= 165 and 8.0 <= pace <= 9.5:
-        wt = "tempo"
-    elif max_hr and max_hr >= 175 and avg_hr and avg_hr < 150:
-        wt = "intervals"
-    elif avg_hr and avg_hr < config.easy_hr_cap():
-        wt = "easy"
-    else:
-        wt = "general_aerobic"
-
-    activity["_workout_type"] = wt
+    activity["_workout_type"] = classify_run(activity)
     return activity
 
 
@@ -325,8 +414,9 @@ def needs_enrichment(activity: dict) -> bool:
 # Bulk backfill (called from strava_sync)
 # ---------------------------------------------------------------------------
 
-def backfill_enrichment(cache_dir, verbose: bool = True) -> int:
-    """Walk all cached JSONs, re-enrich any with stale version. Returns count."""
+def backfill_enrichment(cache_dir, verbose: bool = True, force: bool = False) -> int:
+    """Walk all cached JSONs, re-enrich any with a stale version (every one
+    when `force`, e.g. after the athlete's zones changed). Returns count."""
     import json
     from pathlib import Path
 
@@ -340,7 +430,7 @@ def backfill_enrichment(cache_dir, verbose: bool = True) -> int:
             activity = json.loads(p.read_text())
         except json.JSONDecodeError:
             continue
-        if not needs_enrichment(activity):
+        if not force and not needs_enrichment(activity):
             continue
         activity = enrich(activity)
         p.write_text(json.dumps(activity, indent=2))
@@ -354,12 +444,18 @@ def backfill_enrichment(cache_dir, verbose: bool = True) -> int:
 if __name__ == "__main__":
     # CLI usage: enrich all cached activities
     import sys
-    from pathlib import Path
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-    cache = Path(__file__).parent / "data" / "strava_cache" / "activities"
-    n = backfill_enrichment(cache)
-    print(f"Done. {n} activities enriched.")
+    force = "--force" in sys.argv[1:]
+    n = backfill_enrichment(config.ACTIVITIES_DIR, force=force)
+    print(f"Done. {n} activities {'re-' if force else ''}enriched.")
+
+
+def reenrich_all(cache_dir=None, verbose: bool = True) -> int:
+    """Re-enrich every cached activity regardless of version. Run after the
+    config changes (thresholds, zones) so cached TSS and run kinds follow."""
+    return backfill_enrichment(cache_dir if cache_dir is not None else config.ACTIVITIES_DIR,
+                               verbose=verbose, force=True)

@@ -26,6 +26,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 import config
+import units
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +291,8 @@ def effort_efficiency(runs: list, max_pace: float = 9.5, top_n: int = 5) -> dict
 # ---------------------------------------------------------------------------
 
 def _fmt_pace(p: float) -> str:
-    if not p or p <= 0:
-        return "N/A"
-    m = int(p)
-    s = int(round((p - m) * 60))
-    if s == 60:
-        m, s = m + 1, 0
-    return f"{m}:{s:02d}"
+    import units
+    return units.fmt_pace(p, label=False)
 
 
 def print_trends(runs: list = None) -> None:
@@ -308,8 +304,9 @@ def print_trends(runs: list = None) -> None:
     print("CARDIAC DRIFT ON LONG RUNS (max HR - avg HR)")
     drifts = drift_history(runs)
     for d in drifts[:10]:
-        eff = f" | effort/mi {d['effort_per_mi']}" if d["effort_per_mi"] else ""
-        print(f"  {d['date']} | {d['dist_mi']:5.1f}mi | {_fmt_pace(d['pace'])}/mi | "
+        eff = (f" | effort/{units.unit()} {units.per_mi_to_user(d['effort_per_mi']):.1f}"
+               if d["effort_per_mi"] else "")
+        print(f"  {d['date']} | {units.fmt_dist(mi=d['dist_mi']):>8} | {_fmt_pace(d['pace'])}{units.pace_label()} | "
               f"avg {d['avg_hr']} max {d['max_hr']} | drift {d['drift_bpm']:2d} bpm{eff}")
     if drifts:
         print("  Rising drift on comparable runs = fatigue building late; "
@@ -320,7 +317,7 @@ def print_trends(runs: list = None) -> None:
     print()
     print("AEROBIC EFFICIENCY (pace at controlled HR, by quarter)")
     for e in efficiency_trend(runs):
-        print(f"  {e['quarter']}: {_fmt_pace(e['avg_pace'])}/mi ({e['runs']} runs)")
+        print(f"  {e['quarter']}: {_fmt_pace(e['avg_pace'])}{units.pace_label()} ({e['runs']} runs)")
     print("  Pace dropping at the same HR = aerobic fitness improving. "
           "Flat = volume, not speed work, is the bottleneck.")
 
@@ -339,9 +336,9 @@ def print_trends(runs: list = None) -> None:
         print(f"  {rp['note']}")
     else:
         print(f"  After hard days: HR {rp['post_hard_avg_hr']}, "
-              f"{_fmt_pace(rp['post_hard_avg_pace'])}/mi ({rp['post_hard_runs']} runs)")
+              f"{_fmt_pace(rp['post_hard_avg_pace'])}{units.pace_label()} ({rp['post_hard_runs']} runs)")
         print(f"  Normal days:     HR {rp['normal_avg_hr']}, "
-              f"{_fmt_pace(rp['normal_avg_pace'])}/mi ({rp['normal_runs']} runs)")
+              f"{_fmt_pace(rp['normal_avg_pace'])}{units.pace_label()} ({rp['normal_runs']} runs)")
         if rp["hr_elevation_bpm"] > 3:
             print(f"  HR runs {rp['hr_elevation_bpm']} bpm higher after hard days — "
                   "recovery runs need to be genuinely easy.")
@@ -355,11 +352,11 @@ def print_trends(runs: list = None) -> None:
     if "note" in ec:
         print(f"  {ec['note']}")
     else:
-        print(f"  Flat:  {_fmt_pace(ec['flat_pace'])}/mi @ HR {ec['flat_hr']} "
+        print(f"  Flat:  {_fmt_pace(ec['flat_pace'])}{units.pace_label()} @ HR {ec['flat_hr']} "
               f"({ec['flat_runs']} runs)")
-        print(f"  Hilly: {_fmt_pace(ec['hilly_pace'])}/mi @ HR {ec['hilly_hr']} "
+        print(f"  Hilly: {_fmt_pace(ec['hilly_pace'])}{units.pace_label()} @ HR {ec['hilly_hr']} "
               f"({ec['hilly_runs']} runs)")
-        print(f"  Cost: ~{ec['cost_sec_per_mi']} sec/mi and {ec['cost_bpm']:+} bpm — "
+        print(f"  Cost: ~{units.per_mi_to_user(ec['cost_sec_per_mi']):.0f} sec/{units.unit()} and {ec['cost_bpm']:+} bpm — "
               "budget this on a non-flat course.")
 
     print()
@@ -368,26 +365,26 @@ def print_trends(runs: list = None) -> None:
     if "note" in t:
         print(f"  {t['note']}")
     else:
-        print(f"  Indoor:  {_fmt_pace(t['indoor_pace'])}/mi @ HR {t['indoor_hr']} "
+        print(f"  Indoor:  {_fmt_pace(t['indoor_pace'])}{units.pace_label()} @ HR {t['indoor_hr']} "
               f"({t['indoor_runs']} runs)")
-        print(f"  Outdoor: {_fmt_pace(t['outdoor_pace'])}/mi @ HR {t['outdoor_hr']} "
+        print(f"  Outdoor: {_fmt_pace(t['outdoor_pace'])}{units.pace_label()} @ HR {t['outdoor_hr']} "
               f"({t['outdoor_runs']} runs)")
         print("  If the paces differ at similar HR, prescribe by HR, not pace.")
 
     print()
-    print("EFFORT EFFICIENCY (relative effort per mile, faster runs)")
+    print(f"EFFORT EFFICIENCY (relative effort per {units.unit()}, faster runs)")
     ee = effort_efficiency(runs)
     if "note" in ee:
         print(f"  {ee['note']}")
     else:
         print("  Most efficient:")
         for r in ee["most_efficient"]:
-            print(f"    {r['date']} | {r['dist_mi']}mi | {_fmt_pace(r['pace'])}/mi | "
-                  f"effort/mi {r['eff_per_mi']}")
+            print(f"    {r['date']} | {units.fmt_dist(mi=r['dist_mi'])} | {_fmt_pace(r['pace'])}{units.pace_label()} | "
+                  f"effort/{units.unit()} {units.per_mi_to_user(r['eff_per_mi']):.1f}")
         print("  Least efficient:")
         for r in ee["least_efficient"]:
-            print(f"    {r['date']} | {r['dist_mi']}mi | {_fmt_pace(r['pace'])}/mi | "
-                  f"effort/mi {r['eff_per_mi']}")
+            print(f"    {r['date']} | {units.fmt_dist(mi=r['dist_mi'])} | {_fmt_pace(r['pace'])}{units.pace_label()} | "
+                  f"effort/{units.unit()} {units.per_mi_to_user(r['eff_per_mi']):.1f}")
 
 
 if __name__ == "__main__":

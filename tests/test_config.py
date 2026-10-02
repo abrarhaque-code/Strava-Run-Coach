@@ -116,13 +116,38 @@ class TestActiveRace(unittest.TestCase):
 
 
 class TestHelpers(unittest.TestCase):
-    def test_has_structured_plan(self):
-        json_race = {"plan": "data/marathon_plan.json"}
-        generated_race = {"plan": "generated_half"}
-        no_plan = {}
-        self.assertTrue(config.has_structured_plan(json_race))
-        self.assertFalse(config.has_structured_plan(generated_race))
-        self.assertFalse(config.has_structured_plan(no_plan))
+    def test_has_structured_plan_means_the_file_exists(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "plan.json"
+            json_race = {"id": "r", "plan": str(f)}
+            self.assertFalse(config.has_structured_plan(json_race))
+            f.write_text("{}", encoding="utf-8")
+            self.assertTrue(config.has_structured_plan(json_race))
+        # Legacy sentinel and no plan key both resolve to the (absent)
+        # generated file for the race id.
+        self.assertFalse(config.has_structured_plan({"id": "zz", "plan": "generated_half"}))
+        self.assertFalse(config.has_structured_plan({}))
+
+    def test_zone_edges_monotonic_and_from_config(self):
+        config.reload()
+        edges = config.zone_edges()
+        names = [e[0] for e in edges]
+        self.assertEqual(names, ["recovery", "easy", "steady", "mp", "threshold", "vo2"])
+        for (_, lo, hi), (_, nlo, _nhi) in zip(edges, edges[1:]):
+            self.assertLessEqual(lo, hi)
+            self.assertEqual(hi, nlo)
+        self.assertEqual(edges[1][2], config.easy_hr_cap())
+        self.assertEqual(list(edges[3][1:]), config.race_pace_hr_range())
+
+    def test_optional_getters_have_defaults(self):
+        config.reload()
+        self.assertAlmostEqual(config.vo2_pct_max(), 0.90)
+        self.assertEqual(config.hr_source(), "wrist")
+        self.assertEqual(config.plan_cfg()["days_per_week"], 5)
+        self.assertEqual(config.plan_cfg()["quality"], "full")
+        self.assertGreater(config.long_run_min_mi(), 0)
 
     def test_goal_time_to_sec(self):
         self.assertEqual(config.goal_time_to_sec("3:45:00"), 13500)

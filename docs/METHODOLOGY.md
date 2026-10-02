@@ -150,17 +150,37 @@ It exists to convert "you are 3.5 VDOT short" into something a human can
 feel the weight of. Treat it as a calibrated gut-check, not a forecast with
 error bars.
 
-## Cardiac drift and the trend lenses
+## Decoupling at matched pace, and the run grade
 
-`trends.py` (long-horizon) and `post_run_review.py` (single run) both look
-at heart-rate drift — HR rising at constant pace as a proxy for aerobic
-durability and fueling. The single-run version compares first-half vs
-second-half HR from streams; the longitudinal version uses max−avg HR on
-long runs. Efficiency (`pace at a controlled HR band, by quarter`) is the
+Aerobic decoupling is heart rate rising at the SAME pace as a run goes on, a
+proxy for durability and fuelling (the Friel/TrainingPeaks formulation). The
+naive version, first-half HR vs second-half HR, measures how the run was
+designed instead: a progression run, a fast finish or a hilly back half all
+"drift". `post_run_review.pace_matched_decoupling` therefore pairs every
+early split with every late split run within 12 s per split of it, scores
+each pair's HR delta, and reports the median (the verdict) and the worst pair
+(named). Under 3 bpm is clean, under 8 mild, above that real drift. The
+longitudinal lens in `trends.py` (max minus average HR on long runs) is a
+coarser screen and is labelled as such.
+
+The review grades a run on five dimensions, each `ok` / `watch` (-10) /
+`miss` (-20) from 100: intent (the athlete's own Strava description, else the
+plan week), easy discipline (the share of easy splits under the HR cap), the
+declared work (pace band AND HR band for tempo/threshold/race-pace segments;
+marathon-pace blocks as laps at pace inside the HR band; reps reconstructed
+from the stream), the finish (a surge that then fades 30+ s per split at
+effort reads as over-spent; a slow finish under the easy cap is a cool-down),
+and the clock cap on a long run. Load (TSS and the form it leaves) and the
+wrist-HR plausibility check are reported, never deducted. HR is treated as
+what the day cost and pace as what the athlete did, because heat, travel and
+sleep move HR at the same pace; the easy cap is the one place HR alone
+decides. **Caveat:** the bands are the athlete's configured zones, and the
+grade is a rubric, not a measurement; the "confirm with the athlete" lines
+exist because intent is not observable.
+
+Efficiency (`pace at a controlled HR band, by quarter`, in `trends.py`) is the
 cleanest aerobic-fitness signal available without lab testing: pace dropping
-at the same HR means the engine is growing. **Reference:** the concept is
-standard exercise physiology; the "aerobic decoupling" formulation follows
-Friel/TrainingPeaks practice.
+at the same HR means the engine is growing.
 
 ## What this tool does not model
 

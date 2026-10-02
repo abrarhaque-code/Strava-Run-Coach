@@ -74,9 +74,14 @@ def reconcile(today: Optional[date] = None, verbose: bool = True) -> dict:
     if today is None:
         today = date.today()
 
+    if not mp.has_plan():
+        if verbose:
+            print("  [reconcile] No training plan yet; nothing to reconcile.")
+        return {"weeks_reconciled": 0, "changes": []}
+
     current = mp.current_week(today)
     if current is None:
-        # Before plan start or after race — reconcile everything elapsed
+        # Before plan start or after race: reconcile everything elapsed
         last_week_num = mp.total_weeks() if today > mp.race_date() else 0
     else:
         last_week_num = current["week_num"]
@@ -129,6 +134,11 @@ def reconcile(today: Optional[date] = None, verbose: bool = True) -> dict:
         if c["run_count"] == 0 and c["bike_sessions"] == 0 and no_coverage:
             if old is None:
                 continue  # never fabricate a zero record from missing coverage
+            if old.get("status") in TERMINAL_STATUSES and earliest_loaded is not None:
+                # A finalized week outside a windowed pull: nothing new to learn
+                # and nothing wrong. Only a pass that loaded NOTHING at all
+                # (fresh clone, empty cache) marks history stale.
+                continue
             if not old.get("data_stale"):
                 old["data_stale"] = True
                 changes.append(f"week {n}: no activity data loaded — kept "
@@ -171,18 +181,28 @@ def reconcile(today: Optional[date] = None, verbose: bool = True) -> dict:
     return {"weeks_reconciled": last_week_num, "changes": changes}
 
 
-def add_note(text: str, today: Optional[date] = None) -> None:
-    """Append a timestamped in-the-moment note to the current plan week."""
+def add_note(text: str, today: Optional[date] = None, until: Optional[str] = None) -> dict:
+    """Append a timestamped note to the current plan week (or "general" when no
+    plan week applies). With `until` (YYYY-MM-DD) the note stands until that
+    date and the brief, the weekly check-in and the day layout keep showing it:
+    the one lever for an injury or a travel week."""
     if today is None:
         today = date.today()
-    current = mp.current_week(today)
+    if until is not None:
+        until = date.fromisoformat(str(until)).isoformat()
+    try:
+        current = mp.current_week(today) if mp.has_plan() else None
+    except Exception:
+        current = None
     key = str(current["week_num"]) if current else "general"
     state = mp.load_state()
     notes = state.setdefault("notes", {})
-    stamp = today.isoformat()
-    notes.setdefault(key, []).append(f"{stamp}: {text}")
+    entry = {"date": today.isoformat(), "text": text, "until": until}
+    notes.setdefault(key, []).append(entry)
     mp.save_state(state)
-    print(f"  [reconcile] Note added to week {key}: {text}")
+    where = f"week {key}" if key != "general" else "general notes"
+    print(f"  [reconcile] Note added to {where}: {mp.format_note(entry)}")
+    return entry
 
 
 def main():

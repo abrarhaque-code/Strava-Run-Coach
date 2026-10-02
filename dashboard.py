@@ -37,9 +37,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import config
+import units
 
 
-OUT_DIR = Path(__file__).parent / "plan_output"
+OUT_DIR = config.PLAN_OUTPUT_DIR
 OUT_FILE = OUT_DIR / "dashboard.html"
 
 # r=46 circle circumference, used for the probability ring stroke-dasharray.
@@ -58,8 +59,9 @@ def _fmt_mmss(total_seconds: float) -> str:
 
 
 def _pace_from_min(min_per_mi: float) -> str:
-    """Decimal minutes-per-mile -> 'M:SS'."""
-    return _fmt_mmss(min_per_mi * 60)
+    """Decimal minutes-per-mile -> 'M:SS' in the user's unit (no label)."""
+    import units
+    return units.fmt_pace(min_per_mi, label=False)
 
 
 def _short_date(iso_or_date) -> str:
@@ -346,18 +348,20 @@ def _masthead(race: dict) -> str:
         '</svg>'
     )
 
+    dist_label = units.fmt_dist(mi=float(distance or 0), nd=1)
+    pace_lbl = units.pace_label()
     return f"""  <!-- HEADER / MASTHEAD -->
   <header class="mast band">
     <div class="mast-main">
-      <div class="mast-eye"><span class="dot"></span>ACTIVE RACE<span class="sub">/ {name} &middot; {distance:g} miles</span></div>
+      <div class="mast-eye"><span class="dot"></span>ACTIVE RACE<span class="sub">/ {name} &middot; {dist_label}</span></div>
       <h1 class="title">{title_html}</h1>
       <div class="athlete">
         <span class="nm">{athlete}</span>
-        <span class="meta">Goal {goal_time} - {goal_pace} /mi target</span>
+        <span class="meta">Goal {goal_time} - {goal_pace} {pace_lbl} target</span>
       </div>
       <div class="mast-stats">
         <div class="kpi"><div class="k-lbl">Goal Time</div><div class="k-val">{goal_time}</div></div>
-        <div class="kpi"><div class="k-lbl">Target Pace</div><div class="k-val">{goal_pace}<small>/mi</small></div></div>
+        <div class="kpi"><div class="k-lbl">Target Pace</div><div class="k-val">{goal_pace}<small>{pace_lbl}</small></div></div>
         <div class="kpi"><div class="k-lbl">Predicted</div><div class="k-val" style="color:var(--klein)">{pred}</div></div>
         <div class="kpi">
           <div class="k-lbl">Goal Prob.</div>
@@ -520,7 +524,7 @@ def _consistency_mileage_split(cons: dict, weekly: list) -> str:
         easy_pct = 100 - long_pct
         bars.append(
             '<div class="bar-col">'
-            f'<div class="bar-val">{round(miles)}</div>'
+            f'<div class="bar-val">{round(units.mi_to_user(miles))}</div>'
             f'<div class="bar" style="height:{bar_pct:.1f}%">'
             f'<div class="seg easy" style="height:{easy_pct:.1f}%"></div>'
             f'<div class="seg long" style="height:{long_pct:.1f}%"></div>'
@@ -546,7 +550,7 @@ def _consistency_mileage_split(cons: dict, weekly: list) -> str:
     </div>
     <!-- WEEKLY MILEAGE -->
     <div class="col">
-      <div class="eyebrow"><span class="idx">04</span><span class="lbl">Weekly Mileage</span><span class="rt">Last 12 weeks &middot; miles</span></div>
+      <div class="eyebrow"><span class="idx">04</span><span class="lbl">Weekly Volume</span><span class="rt">Last 12 weeks &middot; {units.unit()}</span></div>
       <div class="mile-chart">{"".join(bars)}</div>
       <div class="mile-foot">
         <span><i style="background:var(--c3)"></i>Easy / workout volume</span>
@@ -572,7 +576,7 @@ def _best_efforts_table(best_efforts: dict) -> str:
                 f'          <td class="ev-idx">{n:02d}</td>\n'
                 f'          <td class="ev-dist">{label}</td>\n'
                 f'          <td class="ev-time">{time_str}</td>\n'
-                f'          <td class="ev-pace">{pace} /mi</td>\n'
+                f'          <td class="ev-pace">{pace} {units.pace_label()}</td>\n'
                 f'          <td class="ev-date">{datestr}</td>\n'
                 "        </tr>"
             )
@@ -630,73 +634,18 @@ def _plan_progress_col(data: dict, active_info: dict, today: date) -> str:
         inner = f"""      <div class="eyebrow"><span class="idx">06</span><span class="lbl">Plan Progress</span><span class="rt">{block_label}</span></div>
       <div class="plan-top">
         <div class="pt-wk">Week {cur_num} <small>of {n_weeks}</small></div>
-        <div class="pt-mi"><b>{target:g} mi</b> planned<br><b>{actual:g} mi</b> done</div>
+        <div class="pt-mi"><b>{units.fmt_dist(mi=target)}</b> planned<br><b>{units.fmt_dist(mi=actual)}</b> done</div>
       </div>
       <div class="phases" style="grid-template-columns:{grid_cols}">
         {"".join(phase_cells)}
       </div>
       <div class="wk-prog">
-        <div class="wp-head"><span class="wp-l">This week &mdash; volume</span><span class="wp-v">{actual:g} / {target:g} mi</span></div>
+        <div class="wp-head"><span class="wp-l">This week &mdash; volume</span><span class="wp-v">{units.mi_to_user(actual):.1f} / {units.fmt_dist(mi=target)}</span></div>
         <div class="wp-track"><div class="wp-fill" style="width:{wp_pct:.1f}%"></div></div>
       </div>"""
         return inner
 
-    # --- Generated short plan (no structured JSON) ---
-    try:
-        import planner
-        plan = planner.generate_half_plan()
-        weeks_list = list(getattr(plan, "weeks", None) or [])
-        if not weeks_list:
-            return ""
-        n_weeks = len(weeks_list)
-
-        cur_num = 0
-        for w in weeks_list:
-            ws = getattr(w, "week_start", None)
-            if ws and ws <= today < ws + timedelta(days=7):
-                cur_num = getattr(w, "week_num", 0)
-                break
-        if not cur_num:
-            # Pick nearest by week_start if today outside all windows.
-            past = [w for w in weeks_list if getattr(w, "week_start", today) <= today]
-            cur_num = getattr(past[-1], "week_num", 0) if past else 0
-
-        # Group contiguous weeks into phase bars.
-        phase_groups = []  # (phase, start_num, end_num)
-        for w in weeks_list:
-            ph = getattr(w, "phase", "") or ""
-            wn = getattr(w, "week_num", 0)
-            if phase_groups and phase_groups[-1][0] == ph:
-                phase_groups[-1] = (ph, phase_groups[-1][1], wn)
-            else:
-                phase_groups.append((ph, wn, wn))
-
-        spans = [max(1, e - s + 1) for _, s, e in phase_groups]
-        grid_cols = " ".join(f"{x}fr" for x in spans) or "1fr"
-        cells = []
-        for ph, s, e in phase_groups:
-            if cur_num and s <= cur_num <= e:
-                klass = "phase cur"
-            elif cur_num and e < cur_num:
-                klass = "phase done"
-            else:
-                klass = "phase"
-            wk_txt = f"Wk {s}" if s == e else f"Wk {s}&ndash;{e}"
-            cells.append(
-                f'<div class="{klass}"><div class="ph-bar"></div>'
-                f'<div class="ph-lbl">{ph.title()}</div>'
-                f'<div class="ph-wk">{wk_txt}</div></div>'
-            )
-
-        return f"""      <div class="eyebrow"><span class="idx">06</span><span class="lbl">Plan Progress</span><span class="rt">{n_weeks}-week block</span></div>
-      <div class="plan-top">
-        <div class="pt-wk">Week {cur_num} <small>of {n_weeks}</small></div>
-      </div>
-      <div class="phases" style="grid-template-columns:{grid_cols}">
-        {"".join(cells)}
-      </div>"""
-    except Exception:
-        return ""
+    return ""
 
 
 def _best_efforts_plan_split(data: dict, active_info: dict, today: date) -> str:
@@ -818,8 +767,7 @@ def _assemble_data() -> dict:
     """Pull everything needed for the dashboard into a single dict."""
     from metrics import (load_activities, eddington_progress, current_streak,
                           longest_streak, weeks_with_3plus_runs,
-                          compute_best_efforts, year_summary, rolling_year_summary,
-                          fmt_pace_min_per_mi, fmt_time)
+                          compute_best_efforts, year_summary, rolling_year_summary)
 
     runs = load_activities(activity_type="Run")
 
@@ -929,7 +877,7 @@ def _assemble_data() -> dict:
     elif abs(distance_mi - 3.11) < 0.2:
         distance_label = "5K"
     else:
-        distance_label = f"{distance_mi:g} mi"
+        distance_label = units.fmt_dist(mi=distance_mi)
 
     # Generic goal short label: "Sub-3:45" from "3:45:00", "Sub-1:59" from "1:59:59".
     goal_short = f"Sub-{active_info['goal_time'].rsplit(':', 1)[0]}"
@@ -955,8 +903,7 @@ def _assemble_data() -> dict:
                         "In reach. Hold the volume and execute."
                         if prob < 0.65 else
                         "On track. Hold the volume and you clear it.")
-        pred_pace_sec = pred_sec / distance_mi
-        pred_pace = f"{int(pred_pace_sec // 60)}:{int(pred_pace_sec % 60):02d}/mi"
+        pred_pace = units.fmt_pace(sec_per_m=pred_sec / race_distance_m)
         margin_sec = config.goal_time_to_sec(active_info["goal_time"]) - pred_sec
 
         race_info = {

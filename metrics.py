@@ -17,18 +17,19 @@ Usage:
 """
 
 import csv
-import io
 import json
 import math
 import statistics
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import date, datetime, timedelta
 from typing import Optional
+import config
+import units
 
 
-CACHE_DIR = Path(__file__).parent / "data" / "strava_cache" / "activities"
-CSV_PATH = Path(__file__).parent / "activities.csv"
+CACHE_DIR = config.ACTIVITIES_DIR
+CSV_PATH = config.CSV_PATH
+STREAMS_DIR = config.STREAMS_DIR
 
 # Standard distances in meters
 DIST_1MI = 1609.34
@@ -162,7 +163,11 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "start_date_local": dt.isoformat(),
                 "distance": dist_km * 1000,
                 "moving_time": moving_time,
+                "elapsed_time": _row_float(15),
                 "average_heartrate": avg_hr,
+                # CSV-only rows have no laps, streams or description; readers
+                # that need those can tell them apart.
+                "_from_csv": True,
                 # Needed by enrichment.classify_activity on CSV-only rows.
                 # NB: max_speed 0 serializes as "" in the CSV, which reads
                 # back as None here — classify treats both as "no max_speed".
@@ -174,6 +179,82 @@ def _load_from_csv(activity_type: Optional[str]) -> list:
                 "relative_effort": _row_float(8),
             })
     return activities
+
+
+# ---------------------------------------------------------------------------
+# Single-activity lookups and streams (the only readers of these paths)
+# ---------------------------------------------------------------------------
+
+def load_streams(activity_id) -> Optional[dict]:
+    """Raw streams for one activity, exactly as cached: REST shape
+    ({"heartrate": {"data": [...]}}) or MCP flat lists ({"heart_rate": [...]}).
+    Pass the result to intervals.normalize_streams. None when missing or
+    corrupt (never raises)."""
+    p = STREAMS_DIR / f"{activity_id}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def has_streams(activity_id) -> bool:
+    return (STREAMS_DIR / f"{activity_id}.json").exists()
+
+
+def activity_by_id(activity_id, source: str = "merged") -> Optional[dict]:
+    """One activity: the cache file first, then a scan of the chosen source."""
+    p = CACHE_DIR / f"{activity_id}.json"
+    if source in ("merged", "cache") and p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    if source == "cache":
+        return None
+    want = str(activity_id)
+    for a in load_activities(source=source):
+        if str(a.get("id")) == want:
+            return a
+    return None
+
+
+def _start_key(a: dict) -> str:
+    return a.get("start_date") or a.get("start_date_local") or ""
+
+
+def latest_run(source: str = "merged", runs: Optional[list] = None) -> Optional[dict]:
+    """Most recent real run, or None. Pass `runs` to reuse an existing load."""
+    if runs is None:
+        runs = load_activities(activity_type="Run", source=source)
+    runs = [r for r in runs if _is_run(r)]
+    return max(runs, key=_start_key) if runs else None
+
+
+def runs_since(days: float, ref: Optional[datetime] = None, runs: Optional[list] = None,
+               source: str = "merged") -> list:
+    """Real runs whose LOCAL start is within `days` of `ref` (default now),
+    newest first. Datetime precision on the naive local start, which is what
+    the daily brief's fatigue read uses."""
+    if ref is None:
+        ref = datetime.now()
+    cutoff = ref - timedelta(days=days)
+    if runs is None:
+        runs = load_activities(activity_type="Run", source=source)
+    out = []
+    for a in runs:
+        if not _is_run(a):
+            continue
+        iso = a.get("start_date_local") or ""
+        try:
+            dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            continue
+        if dt >= cutoff:
+            out.append(a)
+    out.sort(key=_start_key, reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -208,11 +289,9 @@ def _is_run(a: dict) -> bool:
 
 
 def fmt_pace_min_per_mi(pace: float) -> str:
-    if pace <= 0:
-        return "N/A"
-    m = int(pace)
-    s = int(round((pace - m) * 60))
-    return f"{m}:{s:02d}"
+    """M:SS in the user's unit, no label (see units.fmt_pace)."""
+    import units
+    return units.fmt_pace(pace, label=False)
 
 
 def fmt_time(seconds: float) -> str:
@@ -230,19 +309,24 @@ def fmt_time(seconds: float) -> str:
 # Eddington
 # ---------------------------------------------------------------------------
 
-def eddington_number(activities: list, sport_type: str = "Run") -> int:
-    """Largest N where you have at least N runs of N+ miles.
+def _distance_user(a: dict) -> float:
+    """Distance in the athlete's configured unit (Eddington is unit-relative)."""
+    import units
+    return units.mi_to_user(_distance_mi(a))
 
-    Classic running Eddington number. E=12 means 12 runs of 12+ miles.
-    Single elegant metric of training depth.
+
+def eddington_number(activities: list, sport_type: str = "Run") -> int:
+    """Largest N where you have at least N runs of N+ units (miles or km,
+    whichever the athlete uses: E=12 means 12 runs of 12+ mi for a miles
+    runner, 12 runs of 12+ km for a metric one). A single metric of depth.
     """
     runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
             and (sport_type != "Run" or _is_run(a))]
     if not runs:
         return 0
-    distances_mi = sorted([_distance_mi(r) for r in runs], reverse=True)
+    distances = sorted([_distance_user(r) for r in runs], reverse=True)
     e = 0
-    for i, d in enumerate(distances_mi, 1):
+    for i, d in enumerate(distances, 1):
         if d >= i:
             e = i
         else:
@@ -256,7 +340,7 @@ def eddington_progress(activities: list, sport_type: str = "Run") -> dict:
     next_n = e + 1
     runs = [a for a in activities if a.get("type") == sport_type and not a.get("_deleted_at")
             and (sport_type != "Run" or _is_run(a))]
-    runs_at_or_above = sum(1 for r in runs if _distance_mi(r) >= next_n)
+    runs_at_or_above = sum(1 for r in runs if _distance_user(r) >= next_n)
     runs_needed = max(0, next_n - runs_at_or_above)
     return {
         "current": e,
@@ -565,9 +649,10 @@ def print_summary():
 
     e = eddington_progress(runs)
     print("EDDINGTON")
-    print(f"  Current: E={e['current']} (you have {e['current']}+ runs of {e['current']}+ miles)")
+    u = units.unit()
+    print(f"  Current: E={e['current']} (you have {e['current']}+ runs of {e['current']}+ {u})")
     print(f"  Next:    E={e['next_n']} needs {e['runs_needed_for_next']} more runs of "
-          f"{e['next_n']}+ miles ({e['runs_at_or_above_next']} so far)")
+          f"{e['next_n']}+ {u} ({e['runs_at_or_above_next']} so far)")
     print()
 
     s = current_streak(runs)
@@ -589,7 +674,7 @@ def print_summary():
     for label in ["1mi", "5K", "10K", "10mi", "HM"]:
         if label in be:
             b = be[label]
-            print(f"  {label:5s}: {b['time_str']:>9s} @ {b['pace_str']}/mi | "
+            print(f"  {label:5s}: {b['time_str']:>9s} @ {b['pace_str']}{units.pace_label()} | "
                   f"VDOT {b['vdot']:.1f} | {b['date']} | {b['activity_name']}")
         else:
             print(f"  {label:5s}: -- (no qualifying effort)")
@@ -597,13 +682,13 @@ def print_summary():
 
     print("YEAR SUMMARY")
     for y in year_summary(runs):
-        print(f"  {y['year']}: {y['run_count']:3d} runs | {y['total_mi']:6.1f} mi | "
-              f"longest {y['longest_mi']:5.1f} mi | avg pace {y['avg_pace_str']}/mi | "
+        print(f"  {y['year']}: {y['run_count']:3d} runs | {units.fmt_dist(mi=y['total_mi']):>10} | "
+              f"longest {units.fmt_dist(mi=y['longest_mi'])} | avg pace {y['avg_pace_str']}{units.pace_label()} | "
               f"5K {y['best_5k']} | 10K {y['best_10k']} | HM {y['best_hm']}")
 
     r = rolling_year_summary(runs)
-    print(f"  Last 365: {r['run_count']:3d} runs | {r['total_mi']:6.1f} mi | "
-          f"longest {r['longest_mi']:5.1f} mi")
+    print(f"  Last 365: {r['run_count']:3d} runs | {units.fmt_dist(mi=r['total_mi']):>10} | "
+          f"longest {units.fmt_dist(mi=r['longest_mi'])}")
     print()
 
 

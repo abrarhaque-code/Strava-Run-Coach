@@ -1,85 +1,132 @@
 ---
 name: strava-coach-analyze
-description: Pull the athlete's recent Strava history via the Strava MCP and run the coach engine (race forecast, fitness, base-build scenarios). Use when the user asks to analyze their running, "coach me", "how is my training going", "what shape am I in", or wants a report from live Strava data.
+description: The entry point. Pull the athlete's Strava history through the Strava MCP, set the coach up on first run (one question), and give the report - today's session, fitness, race forecast, the latest run's review, the week. Use for "coach me", "set me up", "how is my training going", "what should I do today", "what shape am I in", or any request for a report from live Strava data.
 ---
 
-# Analyze training from live Strava data
+# Coach me, from live Strava data
 
-You are driving the strava-run-coach engine. The engine computes the numbers
-(VDOT, CTL/ATL/TSB, goal probability, scenarios) — your job is to get clean
-data into it and relay its output conversationally. Never recompute its math
-by hand.
+You drive the strava-run-coach engine. It does the maths (VDOT, CTL/ATL/TSB,
+grades, probabilities, pace bands); you get clean data into it and relay the
+output the way `docs/COACHING.md` says. Read that file once per session.
+Never recompute its numbers by hand.
 
-## 0. Locate the engine
+## 0. Where the engine lives
 
-Run from the repo root (where `coach.py` lives). If there is no checkout,
-clone it first: `git clone https://github.com/abrarhaque-code/Strava-Run-Coach`
-(if this skill came from the installed plugin, a copy of the engine also
-lives at `${CLAUDE_PLUGIN_ROOT}` — fine for throwaway analysis, but data
-written there does not survive plugin updates).
-
-## 1. Verify the Strava MCP is connected
-
-Check for a `list_activities` tool (Strava MCP). If it is missing, tell the
-user how to connect it, then stop or fall back:
-
-- claude.ai: Settings -> Connectors -> enable **Strava** (requires a Strava
-  subscription).
-- Claude Code: `claude mcp add --transport http strava https://mcp.strava.com/mcp`
-  (the repo also ships this in `.mcp.json`; approve it and authenticate via `/mcp`).
-- No Strava at all: offer the sample demo — `python3 coach.py init --sample`.
-
-## 2. Pull the window (exact pagination loop)
-
-Call `list_activities` with `first: 100` and `range_start` set to ~120 days
-ago as an ISO LocalDateTime (e.g. `2026-03-18T00:00:00`) — the coach anchors
-fitness on the trailing weeks and endurance efforts. Then loop:
-
-1. Append the page's `activities` to your collection.
-2. While the response says more pages exist (`has_next_page` /
-   `pageInfo.hasNextPage`), call again passing the cursor (`after` =
-   `end_cursor` / `pageInfo.endCursor`).
-
-Save everything **verbatim** as `{"activities": [...]}` to
-`data/mcp_activities.json` (gitignored by design). Do not reshape or trim
-activity objects — the adapter reads the `summary.*` fields exactly as the
-MCP emits them. Multiple page files also work:
-`coach.py analyze --from-mcp p1.json p2.json`.
-
-## 3. Optional but recommended: heart rate + laps
-
-`list_activities` summaries carry **no heart rate**. For the runs that
-matter (races, long runs, workouts — say the 5-10 most recent significant
-runs), call `get_activity_performance(activity_id)` and save the payloads
-keyed by id to `data/mcp_performance.json`:
-
-```json
-{"19330270757": { ...verbatim performance payload... }}
-```
-
-This flips TSS from pace-based to HR-based and lights up lap analysis.
-
-## 4. Ingest + report
+Run every command from the repo root (where `coach.py` is). Installed as a
+plugin, the code is at `${CLAUDE_PLUGIN_ROOT}` and state must live in
+`${CLAUDE_PLUGIN_DATA}` (it survives plugin updates), so the command shape is
 
 ```bash
-python3 coach.py analyze --from-mcp data/mcp_activities.json --performance data/mcp_performance.json
-python3 coach.py fitness       # optional: CTL/ATL/TSB detail
+STRAVA_COACH_HOME="${CLAUDE_PLUGIN_DATA}" python3 "${CLAUDE_PLUGIN_ROOT}/coach.py" status --json
 ```
 
-The ingest classifies cross-training logged as "Run" (bike sessions) into
-the aerobic-load stream automatically — do not delete or edit those entries.
+From a clone, plain `python3 coach.py status --json` is the same thing (state
+lives next to the code). The rest of this file writes the short form. No
+checkout and no plugin: `git clone https://github.com/abrarhaque-code/Strava-Run-Coach`.
 
-## 5. Relay
+## 1. Is the Strava MCP connected?
 
-Summarize conversationally: predicted race time vs goal, goal probability,
-CTL/ATL/TSB and phase, scenario feasibility, and whatever the report itself
-flags. Frame ranges as planning bands, not promises.
+Check for a `list_activities` tool. If it is missing, say how to connect it
+and either stop or fall back to the demo:
+
+- claude.ai / Cowork: Settings -> Connectors -> enable **Strava**.
+- Claude Code: `claude mcp add --transport http strava https://mcp.strava.com/mcp`
+  (the repo ships this in `.mcp.json`; approve it, then `/mcp` to authenticate).
+- No Strava at all: `python3 coach.py init --sample` builds a demo athlete.
+
+## 2. Where things stand
+
+```bash
+python3 coach.py status --json
+```
+
+Read `configured`, `cache_count`, `history_days`, `fetch.range_start`,
+`fetch.perf_needed`, `fetch.streams_needed`, `plan_present`, and `next`. The
+`next` list is in order; follow it. On a first run (`configured: false`) also
+save the athlete's profile and zones, verbatim, before anything else:
+
+- `get_athlete_profile()` -> `data/mcp/profile.json`
+- `get_athlete_zones()` -> `data/mcp/zones.json`
+
+(`data/mcp/` is the inbox; it is gitignored. Write each tool result to its
+file exactly as returned. A persisted `[{"type":"text","text":"..."}]` wrapper
+is fine: the ingest unwraps it. Never reshape or trim payloads.)
+
+## 3. Data in: 90 days, three kinds of call
+
+1. `list_activities` with `first: 100`, `range_start: <fetch.range_start>`
+   (90 days back on an empty cache; fitness is a 42-day average and a short
+   pull reads as a false "overreaching"), `include_tags: true`. While the
+   response says more pages exist (`has_next_page` / `pageInfo.hasNextPage`),
+   call again with `after` = the end cursor. Save each page to
+   `data/mcp/list/page-1.json`, `page-2.json`, ...
+2. `python3 coach.py ingest` (reads `data/mcp/`), then `status --json` again.
+3. For every id in `fetch.perf_needed`: `get_activity_performance(id)` ->
+   `data/mcp/perf/<id>.json` (heart rate and laps; without them TSS falls back
+   to pace and the review is shallow). For every id in `fetch.streams_needed`:
+   `get_activity_streams(id, streams=["time","heart_rate","velocity_smooth",
+   "cadence","distance","altitude","moving"], resolution=3000)` ->
+   `data/mcp/streams/<id>.json` (stops, time in zones, reps, the wrist-HR check).
+4. `python3 coach.py ingest` again.
+
+This is one to three list pages plus a handful of per-run calls. Do it without
+asking; it is the setup the athlete wanted when they said "coach me".
+
+## 4. First run only: config, and the one question
+
+If `configured` was false:
+
+```bash
+python3 coach.py init --from-mcp --dry-run
+```
+
+It prints the athlete Strava knows (name, units, zones, observed max HR, their
+real easy pace) and the race Strava says they are training for, plus a NEEDS
+list, which is normally just the goal time. Ask ONE question, reading the
+race back:
+
+> Strava says you're training for the **New York City Marathon** on
+> **2026-11-01** (26.2 mi). What's your goal time? If anything there is wrong,
+> correct it in the same reply.
+
+Then write it, with whatever they corrected:
+
+```bash
+python3 coach.py init --from-mcp --goal-time 3:45:00 [--race-name "..." --race-date YYYY-MM-DD --distance 42.2km]
+```
+
+It writes `config.json`, re-enriches the cache so load follows the new zones,
+and generates a plan to the race (5 days/week, Saturday long run by default;
+the `build-plan` skill tunes days, long-run day, lifting and injuries). No race
+at all: `--no-race`, then offer `build-plan` when they have one.
+
+## 5. The report
+
+```bash
+python3 coach.py            # brief + fitness + forecast + latest review + week
+```
+
+One piece at a time: `brief` (today), `fitness`, `forecast`, `review` (latest
+run; see `review-run`), `week` (see `weekly-review`), `status`.
+
+## 6. Relay (the COACHING.md digest)
+
+- Where they are first, wins included; then what needs to happen; then how.
+- Today's session and the week's shape; predicted time vs goal with the
+  probability as a band; the latest run's grade and the one dimension that
+  set it.
+- Under 60 days of history the fitness read is `UNRELIABLE`: say the numbers
+  are warming up and leave it there. No "overreaching", no "lost fitness".
+- A rising HR late in a run is not decoupling until the pace-matched line says
+  so; a fast finish may be deliberate: ask.
+- Missed sessions: adjust and move forward. One focus, not a list.
+- Their units, never yours.
 
 ## Never
 
-- Paste raw activity JSON back to the user.
-- Recompute VDOT/CTL/TSS by hand instead of running the engine.
-- Edit `config.json` unasked (offer `coach.py init --from-mcp-zones` if the
-  user wants zone calibration from their Strava zones).
-- Commit anything under `data/` or `activities.csv` — it is personal data
-  and gitignored for a reason.
+- Paste raw JSON or tool results at the athlete.
+- Recompute VDOT, TSS, CTL or a grade by hand.
+- Edit `config.json` by hand; use `init --from-mcp --force` with confirmation.
+- Run `init --sample` on a real athlete's home: it adds fake runs.
+- Ask more than the one setup question before showing them something.
+- Commit anything under `data/`, `plan_output/` or `config.json`.
